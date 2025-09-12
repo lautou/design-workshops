@@ -1,0 +1,493 @@
+= OpenShift Container Platform - Architecture Decision Log
+
+== 1. Basic Concepts and Architecture Overview
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| OCP-BASE-0
+| How many OCP clusters do you plan to deploy, and what will be the main purpose of each?
+
+| OCP-BASE-1
+| Which cloud operating model will be adopted for the OpenShift platform?
+
+| OCP-BASE-2
+| On which platform will the OpenShift clusters be deployed?
+
+| OCP-BASE-3
+| How will the installation process be automated?
+
+| OCP-BASE-4
+| Will the cluster operate in a connected or disconnected (air-gapped) environment?
+|===
+
+== 2. Baremetal Infrastructure Platform and Installation
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| OCP-BM-0
+| What is the network topology for the bare-metal servers?
+
+| OCP-BM-1
+| How will the bare-metal servers be provisioned?
+
+| OCP-BM-2
+| What is the strategy for managing the base operating system (RHCOS)?
+
+| OCP-BM-3
+| What is the disk layout for the bare-metal nodes?
+
+| OCP-BM-4
+| How will the control plane nodes be made highly available?
+
+| OCP-BM-5
+| Which installation method will be used (e.g., IPI, UPI, Assisted Installer, Agent-based)?
+
+| OCP-BM-6
+| Will any clusters be deployed on a single node (SNO)?
+
+| OCP-BM-7
+| How will the `install-config.yaml` file and other installation artifacts be generated and managed?
+
+| OCP-BM-8
+| What is the strategy for pre-flight validation and troubleshooting of the installation process?
+|===
+
+== 3. Networking
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| OCP-NET-0
+| Which Container Network Interface (CNI) plugin will be used for the primary cluster network?
+
+| OCP-NET-1
+| What is the IP addressing scheme and will you use a dual-stack (IPv4/IPv6) configuration?
+
+| OCP-NET-2
+| How will network policies be used to segment traffic within the cluster?
+
+| OCP-NET-3
+| What is the strategy for exposing applications to the external network?
+
+| OCP-NET-4
+| How will DNS be managed for services within the cluster?
+
+| OCP-NET-5
+| Will a service mesh be used for advanced application-level networking, and if so, which one?
+
+| OCP-NET-6
+| How will the Ingress Controller be exposed to the external network?
+
+| OCP-NET-7
+| What is the TLS termination strategy for applications?
+
+| OCP-NET-8
+| How will DNS be configured for the cluster?
+
+| OCP-NET-9
+| What is the load balancing strategy for the control plane?
+
+| OCP-NET-10
+| What is the strategy for controlling egress traffic from the cluster?
+
+| OCP-NET-11
+| Will a static egress IP address be required for any projects?
+
+| OCP-NET-12
+| Will IPsec be enabled for encrypting traffic between nodes?
+
+| OCP-NET-13
+| Will the Multus CNI plugin be used to attach multiple network interfaces to pods?
+
+| OCP-NET-14
+| If using Multus, what types of secondary networks will be configured (e.g., macvlan, ipvlan, SR-IOV)?
+
+| OCP-NET-15
+| Will Single Root I/O Virtualization (SR-IOV) be used for high-performance network access?
+
+| OCP-NET-16
+| Will the Data Plane Development Kit (DPDK) be used for accelerated packet processing?
+
+| OCP-NET-17
+| If using OVN-Kubernetes, will hybrid networking be configured to connect pods to traditional VLANs?
+
+| OCP-NET-18
+| What is the strategy for Ingress Controller sharding to support multiple teams or applications?
+
+| OCP-NET-19
+| How will the cluster be configured to work with corporate proxies?
+
+| OCP-NET-20
+| Will the Kubernetes NMState Operator be used to declaratively manage node network configurations?
+
+| OCP-NET-21
+| Is there a requirement to support the SCTP protocol for specific applications?
+|===
+
+== 4. Storage
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| OCP-STOR-0
+| What is the default storage class for the cluster?
+
+| OCP-STOR-1
+| What type of persistent storage will be used for stateful applications?
+
+| OCP-STOR-2
+| How will storage be provisioned (dynamic or static)?
+
+| OCP-STOR-3
+| What is the backup and recovery strategy for persistent data?
+
+| OCP-STOR-4
+| What is the disaster recovery (DR) strategy for the cluster's storage?
+
+| OCP-STOR-5
+| How will storage quotas be managed for different tenants?
+
+| OCP-STOR-6
+| Which Container Storage Interface (CSI) drivers will be deployed on the cluster?
+
+| OCP-STOR-7
+| What is the strategy for managing volume expansion?
+
+| OCP-STOR-8
+| Will you use CSI volume snapshots for application data backup and recovery?
+
+| OCP-STOR-9
+| Will you use storage volumes for ephemeral storage use cases?
+|===
+
+== 5. Security
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| OCP-SEC-0
+| How will user authentication and authorization be managed?
+
+| OCP-SEC-1
+| What is the strategy for managing secrets?
+
+| OCP-SEC-2
+| What is the container image scanning and vulnerability management strategy?
+
+| OCP-SEC-3
+| How will network security be enforced at the container level?
+
+| OCP-SEC-4
+| What is the strategy for auditing and logging security events?
+
+| OCP-SEC-5
+| How will you enforce security policies on the cluster?
+
+| OCP-SEC-6
+| Which identity provider (IdP) will be integrated with the cluster for authentication?
+
+| OCP-SEC-7
+| What is the strategy for managing Role-Based Access Control (RBAC) for users and groups?
+
+| OCP-SEC-8
+| What is the policy for assigning and using Security Context Constraints (SCCs)?
+
+| OCP-SEC-9
+| Will the cluster need to operate in FIPS compliant mode?
+
+| OCP-SEC-10
+| What is the strategy for applying security profiles like Security-Enhanced Linux (SELinux)?
+|===
+
+== 6. Platform Administration and Operations
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| OCP-MGT-0
+| What is the cluster upgrade and update strategy?
+
+| OCP-MGT-1
+| How will node maintenance and scaling be handled?
+
+| OCP-MGT-2
+| What is the strategy for managing cluster-level configurations and resources?
+
+| OCP-MGT-3
+| How will you manage the lifecycle of operators?
+
+| OCP-MGT-4
+| What is the strategy for user and project self-service?
+
+| OCP-MGT-5
+| What is the chargeback and showback model for resource consumption?
+
+| OCP-MGT-6
+| What tenancy model will be used for application teams within the clusters?
+
+| OCP-MGT-7
+| What is the strategy for managing resource limits and quotas for application teams?
+
+| OCP-MGT-8
+| What is the strategy for backing up and restoring the etcd datastore?
+
+| OCP-MGT-9
+| How will the Machine API be used for node management and recovery?
+
+| OCP-MGT-10
+| What is the strategy for using MachineSets to manage worker node autoscaling?
+
+| OCP-MGT-11
+| How will custom MachineHealthChecks be configured to automate node remediation?
+
+| OCP-MGT-12
+| What is the primary command-line interface (CLI) and web console access policy for cluster administrators?
+
+| OCP-MGT-13
+| How will Operator Lifecycle Manager (OLM) catalogs (e.g., Red Hat, Certified, Community) be managed and restricted?
+
+| OCP-MGT-14
+| What is the default installation mode for Operators (e.g., AllNamespaces, OwnNamespace)?
+|===
+
+== 7. Observability
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| OCP-MON-0
+| What is the strategy for monitoring the cluster and applications?
+
+| OCP-MON-1
+| How will alerting and notification be configured?
+
+| OCP-MON-2
+| What is the strategy for collecting and analyzing metrics?
+
+| OCP-MON-3
+| Will user-defined workloads in custom projects be enabled for monitoring?
+
+| OCP-MON-4
+| What is the long-term retention strategy for monitoring metrics? Will they be federated or sent to a remote storage system?
+
+| OCP-MON-5
+| Will Power Monitoring be enabled to monitor energy consumption of nodes?
+
+| LOG-0
+| What is the log collection agent strategy (e.g., Vector default, or Fluentd for legacy compatibility)?
+
+| LOG-1
+| What is the on-cluster log storage and sizing strategy for LokiStack (e.g., 1x.extra-small, 1x.small)?
+
+| LOG-2
+| What is the log forwarding strategy? Which log types (application, infrastructure, audit) will be sent to which external systems?
+
+| LOG-3
+| Which specific output types will be configured for log forwarding (e.g., Kafka, Elasticsearch, external Loki)?
+
+| LOG-4
+| What is the strategy for filtering logs forwarded to external systems (e.g., by namespace, label, log level)?
+
+| NETOBSERV-0
+| How will network traffic be monitored and analyzed?
+
+| NETOBSERV-1
+| What is the strategy for detecting and troubleshooting network issues?
+
+| TRACE-0
+| Will distributed tracing be implemented for applications on the platform?
+
+| TRACE-1
+| Which distributed tracing backend will be used (e.g., Jaeger, Tempo)?
+
+| TRACE-2
+| Will the Red Hat build of OpenTelemetry be deployed to collect and process telemetry data (metrics, logs, traces)?
+|===
+
+== 8. CI/CD
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| CICD-0
+| Which tool will be the primary engine for Continuous Integration (CI) versus Continuous Delivery (CD)?
+
+| PIPELINE-0
+| What is the strategic scope and intended use case for OpenShift Pipelines within the organization?
+
+| PIPELINE-1
+| What is the strategy for managing and reusing Tekton Tasks and ClusterTasks?
+
+| PIPELINE-2
+| How will pipelines be triggered (e.g., Git webhooks, manually, events)?
+
+| PIPELINE-3
+| What is the strategy for managing workspaces and persistent storage for pipeline runs?
+
+| PIPELINE-4
+| How will credentials and sensitive data be provided to pipeline runs?
+
+| PIPELINE-5
+| What is the pruning and retention policy for old PipelineRuns and TaskRuns?
+
+| GITOPS-0
+| What is the overall strategy for deploying Argo CD instances and providing tenancy for platform and application teams?
+
+| GITOPS-1
+| How will cluster-level and application configurations be structured in Git?
+
+| GITOPS-2
+| What is the strategy for managing secrets in a GitOps workflow?
+
+| GITOPS-3
+| What is the automated sync policy for applications (e.g., manual sync, automated with self-heal)?
+
+| GITOPS-4
+| How will ApplicationSets be used to automate the management of applications across multiple clusters or environments?
+
+| GITOPS-5
+| What is the strategy for managing user access and permissions within Argo CD?
+|===
+
+== 9. Applications
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| BUILD-0
+| What is the primary strategy for building container images (e.g., Dockerfile, Source-to-Image (S2I))?
+
+| BUILD-1
+| Where will the container images be stored and how will the internal OpenShift Registry be used?
+
+| BUILD-2
+| What is the strategy for managing application dependencies?
+
+| BUILD-3
+| How will application configurations be managed across different environments?
+
+| BUILD-4
+| What is the strategy for deploying applications (e.g., Deployment, DeploymentConfig)?
+
+| BUILD-5
+| How will application health be monitored?
+
+| BUILD-6
+| What is the strategy for autoscaling applications?
+
+| BUILD-7
+| How will ImageStreams be used to manage and track container images?
+
+| BUILD-8
+| What is the policy for allowing external container images to be imported into the cluster?
+|===
+
+== 10. OpenShift Data Foundation
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| ODF-0
+| What is the primary deployment mode for OpenShift Data Foundation (Internal, External, or HCI)?
+
+| ODF-1
+| What are the intended use cases for ODF (e.g., Block, File, Object storage for stateful applications)?
+
+| ODF-2
+| On which platform will ODF be deployed (e.g., Bare Metal, VMware, Public Cloud)?
+
+| ODF-3
+| What is the capacity and performance sizing for the initial ODF deployment?
+
+| ODF-4
+| Will ODF nodes be dedicated (`infra` nodes) or will they run on standard worker nodes?
+
+| ODF-5
+| What is the strategy for provisioning local storage devices for ODF (e.g., dedicated devices, LVM)?
+
+| ODF-6
+| Will encryption be enabled for the ODF storage cluster (cluster-wide or storage class-specific)?
+
+| ODF-7
+| What is the strategy for exposing the S3 object storage (NooBaa) endpoint?
+
+| ODF-8
+| Will Multicluster Orchestrator be used to manage multiple ODF deployments?
+
+| ODF-9
+| What is the Disaster Recovery (DR) strategy for applications using ODF (Metro-DR or Regional-DR)?
+
+| ODF-10
+| How will backup and restore for application persistent volumes be managed?
+
+| ODF-11
+| Will the ODF Multus feature be enabled to provide a dedicated network for storage traffic?
+
+| ODF-12
+| What is the strategy for monitoring ODF health, capacity, and performance?
+|===
+
+== 11. Red Hat OpenShift AI Self-Managed
+[cols="1,3"]
+|===
+| ID | Architectural Question
+
+| RHOAI-SM-0
+| What are the primary use cases for OpenShift AI (e.g., model development, model serving, data engineering, GenAI)?
+
+| RHOAI-SM-1
+| Will the OpenShift AI deployment be in a connected or disconnected (air-gapped) environment?
+
+| RHOAI-SM-2
+| Which components of OpenShift AI will be installed (e.g., Jupyter, ModelMesh, KServe, Elyra, CodeFlare)?
+
+| RHOAI-SM-3
+| What is the strategy for managing user authentication and authorization for data scientists?
+
+| RHOAI-SM-4
+| What is the tenancy model for data science projects (e.g., one project per user, one project per team)?
+
+| RHOAI-SM-5
+| Will NVIDIA GPUs be required for accelerated workloads? If so, how will the GPU Operator be configured?
+
+| RHOAI-SM-6
+| What is the storage strategy for user workbenches, persistent data, and models (e.g., ODF, NFS, Object Storage)?
+
+| RHOAI-SM-7
+| What is the strategy for providing and managing standard and custom workbench (Jupyter notebook) images?
+
+| RHOAI-SM-8
+| How will Python and R package dependencies be managed for data science projects?
+
+| RHOAI-SM-9
+| Which model serving platform will be used (KServe for single-model serving or ModelMesh for multi-model serving)?
+
+| RHOAI-SM-10
+| What is the strategy for exposing model inference endpoints to consumer applications?
+
+| RHOAI-SM-11
+| How will model server resources (CPU, memory, GPU) be allocated and scaled?
+
+| RHOAI-SM-12
+| Will the CodeFlare framework be used for distributed model training on the cluster?
+
+| RHOAI-SM-13
+| Will Elyra be used for creating and running AI/ML pipelines from Jupyter notebooks?
+
+| RHOAI-SM-14
+| How will data scientists connect to external data sources (databases, data lakes, object storage)?
+
+| RHOAI-SM-15
+| What is the strategy for monitoring the health and resource usage of the OpenShift AI platform components?
+
+| RHOAI-SM-16
+| What is the strategy for monitoring deployed models for performance, drift, and explainability?
+
+| RHOAI-SM-17
+| Will custom TLS certificates be required for OpenShift AI components and model routes?
+
+| RHOAI-SM-18
+| What is the strategy for backing up and restoring OpenShift AI user data and deployed models?
+|===

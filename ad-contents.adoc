@@ -1,0 +1,1967 @@
+= Workshop 1: Basic Concepts and Architecture Overview
+
+'''
+
+[#ocp-base-0]
+== OCP-BASE-0: Cluster Count and Purpose
+
+*Architectural Question*::
+How many OCP clusters do you plan to deploy, and what will be the main purpose of each?
+
+*Assumptions*::
+The customer has a clear understanding of their software development lifecycle (SDLC) and their environment isolation requirements.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Consolidated Cluster Model*
+|Optimizes the use of hardware resources and simplifies overall cluster management. Ideal for small to medium-sized organizations or those just starting with OpenShift.
+|Requires strict governance (RBAC, Network Policies, Quotas) to isolate tenants. The risk of cross-environment impact is higher.
+
+|*Per-Environment Model*
+|Provides maximum physical isolation between environments, which is crucial for stability and security. It prevents non-production errors from impacting production.
+|Increases infrastructure costs and management overhead (more clusters to update and monitor). Requires clear processes for promoting applications between clusters.
+
+|*Per-Line of Business (LoB) Model*
+|Allows for complete autonomy of business units in terms of resource management, security policies, and update cycles. Useful in large enterprises with divergent regulatory or operational requirements.
+|The most expensive in terms of infrastructure and management complexity. Can lead to technology silos. Using a multi-cluster management tool like Red Hat Advanced Cluster Management (ACM) becomes almost mandatory.
+|===
+
+'''
+
+[#ocp-base-1]
+== OCP-BASE-1: Cloud Operating Model
+
+*Architectural Question*::
+Which cloud operating model will be adopted for the OpenShift platform?
+
+*Assumptions*::
+The customer has an overall cloud strategy (or is defining one) and understands the differences between CapEx and OpEx models.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Private Cloud (On-Premises)*
+|Offers maximum control over security, data sovereignty, and network performance. Can leverage existing infrastructure investments.
+|The customer is fully responsible for infrastructure management (servers, networking, storage, cooling, power). Requires an initial capital expenditure (CapEx).
+
+|*Public Cloud (Self-managed)*
+|Provides on-demand elasticity and scalability with an operational cost model (OpEx), while retaining full control over the OpenShift installation and configuration.
+|The customer is responsible for both the IaaS costs and the management of the OpenShift platform. Requires specific skills related to the cloud provider's IaaS.
+
+|*Hybrid Cloud (Self-managed)*
+|Offers the flexibility to place workloads in the most suitable environment based on technical, security, or cost requirements. Allows for a gradual migration to the cloud.
+|Introduces management and network complexity (connectivity, latency). Requires multi-cluster management tools to maintain a consistent experience.
+|===
+
+'''
+
+[#ocp-base-2]
+== OCP-BASE-2: Infrastructure platform
+
+*Architectural Question*::
+On which self-managed infrastructure platform will the OpenShift clusters be deployed?
+
+*Assumptions*::
+A decision on the cloud model (private/public/hybrid) has been made. The customer is aware of the capabilities of their target platforms. This discussion excludes fully managed OpenShift services.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Bare Metal*
+|Eliminates virtualization overhead, offering the best possible performance for demanding workloads (e.g., databases, AI/ML, HPC). Enables advanced hardware integration (GPUs, SR-IOV).
+|Requires robust automation for hardware management (provisioning, firmware). The installation method (IPI vs. UPI) is a critical decision point.
+
+|*Private Cloud / Virtualization (e.g., vSphere, OpenStack, Nutanix)*
+|Leverages existing skills, tools, and investments in the customer's data center. Facilitates integration with established storage and network systems.
+|Performance can be impacted by the virtualization layer. Configuration of underlying network and storage is critical to avoid bottlenecks.
+
+|*Public Cloud IaaS (e.g., AWS, Azure, GCP)*
+|Offers the greatest flexibility and speed of provisioning. Allows the cluster to be deployed programmatically using provider APIs while maintaining full control over the OCP software.
+|Customer is responsible for IaaS costs and all aspects of OCP installation, management, and upgrades. Requires deep knowledge of the specific cloud provider's services (VPC, IAM, security groups, etc.).
+
+|*Hybrid Cloud Platform (e.g., Azure Stack Hub)*
+|Provides a cloud-like experience within the customer's data center, which can be ideal for edge use cases or environments with strict data residency rules.
+|Deployment and management are dependent on the specific capabilities and limitations of the platform (e.g., Azure Stack Hub).
+|===
+
+'''
+
+[#ocp-base-3]
+== OCP-BASE-3: Installation Process Automation
+
+*Architectural Question*::
+How will the Day 1 installation process be automated for repeatable cluster deployments?
+
+*Assumptions*::
+The customer desires repeatable and consistent deployments for their clusters, especially when managing more than one.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Manual/Interactive Deployment*
+|Simple and fast for proofs of concept (PoCs) or initial, single-cluster deployments. Does not require advanced automation skills.
+|Not scalable or repeatable. Not suitable for production environments or for quickly rebuilding clusters. Prone to human error.
+
+|*Infrastructure-as-Code (IaC) with Scripting*
+|Ensures consistent, repeatable, and documented deployments. Allows integration into automation workflows for creating and destroying individual clusters. This is the standard for reliable, single-cluster automation.
+|Requires skills in Terraform or Ansible. The state file (e.g., `terraform.tfstate`) must be managed securely and shared among the operations team. The scope is typically one cluster at a time.
+
+|*Centralized Deployment with Red Hat Advanced Cluster Management (ACM)*
+|Ideal for organizations planning to manage a fleet of clusters. It provides a centralized control plane to create, upgrade, and configure clusters across different platforms using a consistent, policy-based approach.
+|Requires an existing ACM "hub" cluster from which to manage other clusters. Adds a powerful layer of abstraction but also introduces a new component to manage. It is the most effective solution for multi-cluster fleet management.
+|===
+
+'''
+
+[#ocp-base-4]
+== OCP-BASE-4: Cluster Connectivity
+
+*Architectural Question*::
+Will the cluster operate in a connected or disconnected (air-gapped) environment?
+
+*Assumptions*::
+The customer is aware of the implications of network security and internet access from their datacenter.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Connected Mode*
+|Greatly simplifies installation, operator lifecycle management (OLM), and cluster updates. This is the standard and simplest mode of operation.
+|If a proxy is used, it must be configured to be highly available. Network perimeter security remains the customer's responsibility.
+
+|*Disconnected (Air-Gapped) Mode*
+|Required for high-security environments (government, defense, finance, industrial) where security policies strictly forbid internet access.
+|Significantly increases operational complexity. Requires setting up and maintaining a mirrored image registry. The update process is more cumbersome. Management of operators and software dependencies is entirely manual.
+|===
+
+= Workshop 2: Baremetal Infrastructure Platform and Installation
+
+'''
+
+[#ocp-bm-0]
+== OCP-BM-0: Network Topology
+
+*Architectural Question*::
+What is the network topology for the bare-metal servers?
+
+*Assumptions*::
+The customer's network team is involved in the discussion. The physical network infrastructure (switches, routers, firewalls) is in place or being planned.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Single Network Interface (Shared)*
+|Simplifies physical cabling and switch configuration. Suitable for smaller clusters or lab environments where network performance and isolation are not primary concerns.
+|All OpenShift control plane, data plane, and server management traffic share the same physical network. Can create performance bottlenecks and security challenges.
+
+|*Multiple Network Interfaces (Bonded/Teamed)*
+|Provides network redundancy and increased throughput by bonding multiple physical NICs into a single logical interface. This is the standard for production environments.
+|Requires switch configuration for link aggregation (LACP). The bonding mode (e.g., active-backup, LACP) needs to be chosen based on network capabilities and requirements.
+
+|*Dedicated Networks for Specific Traffic*
+|Provides maximum isolation and performance by dedicating physical interfaces to different traffic types (e.g., node management via BMC, cluster traffic, storage traffic via Multus).
+|Increases cabling and switch port requirements. Adds complexity to the node's network configuration but is often necessary for high-performance or high-security deployments.
+|===
+
+'''
+
+[#ocp-bm-1]
+== OCP-BM-1: Server Provisioning
+
+*Architectural Question*::
+How will the bare-metal servers be provisioned with an operating system?
+
+*Assumptions*::
+The customer has a fleet of bare-metal servers ready for OS installation.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Installer-Provisioned Infrastructure (IPI)*
+|The OpenShift installer manages the entire lifecycle of the nodes. It uses protocols like PXE and Redfish to boot and install RHCOS on the servers automatically via the Ironic service.
+|Requires a dedicated "provisioning" network. The hardware must have a supported Baseboard Management Controller (BMC) for power management (e.g., IPMI, Redfish).
+
+|*User-Provisioned Infrastructure (UPI)*
+|The customer is responsible for installing Red Hat Enterprise Linux CoreOS (RHCOS) on each server manually or using their own automation tools (e.g., Kickstart, Satellite). The OpenShift installer is then used to configure the cluster on these pre-provisioned nodes.
+|Gives full control over the OS installation process and allows integration with existing provisioning tools. It is more flexible if the hardware BMCs are not compatible with IPI.
+|The process is less automated and more prone to manual errors. The customer is responsible for generating ignition configs and distributing them to the correct machines.
+
+|*Agent-based Installer*
+|Uses a discovery ISO to boot nodes, which then register with an installation service (can be on-premise or cloud-based). It simplifies deployments, especially at the edge, by removing the need for a dedicated provisioning node and network.
+|Excellent for environments with limited infrastructure or for edge deployments. The agent provides a UI to approve hosts and configure the cluster, simplifying the process.
+|Requires booting each node with the discovery ISO. The installer service needs network connectivity to all agent-based nodes.
+|===
+
+'''
+
+[#ocp-bm-2]
+== OCP-BM-2: Base OS Management
+
+*Architectural Question*::
+What is the strategy for managing the base operating system (RHCOS)?
+
+*Assumptions*::
+The cluster is running on Red Hat Enterprise Linux CoreOS (RHCOS), which is the required OS for OpenShift nodes.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Managed by OpenShift (Default)*
+|RHCOS is treated as an immutable part of the platform. All updates and patches are delivered as atomic, over-the-air updates managed by the Machine Config Operator (MCO) as part of a cluster upgrade.
+|This is the standard, fully supported, and recommended approach. It ensures consistency across all nodes and simplifies management, as OS updates are tied to tested OpenShift releases.
+|Node customization is limited to what can be achieved via `MachineConfig` objects. Direct package installation or configuration changes on nodes are not supported and will be reverted.
+
+|*No OS Management (Not Recommended)*
+|Disabling automatic updates and managing the OS manually.
+|This approach is strongly discouraged and generally unsupported. It breaks the integrated model of the platform.
+|The customer would be responsible for tracking and applying all OS updates, which could lead to inconsistencies and instabilities. Cluster upgrades would likely fail.
+|===
+
+'''
+
+[#ocp-bm-3]
+== OCP-BM-3: Node Disk Layout
+
+*Architectural Question*::
+What is the disk layout for the bare-metal nodes?
+
+*Assumptions*::
+The physical servers have been equipped with the required local storage (HDDs, SSDs, NVMe).
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Single Disk for OS and Ephemeral Storage*
+|Simplest configuration. A single drive is used for installing RHCOS and for all container ephemeral storage (e.g., pod overlays, emptyDir volumes).
+|Easy to manage and suitable for nodes that do not run I/O-intensive applications. If the disk fails, the entire node is lost and must be reprovisioned.
+|Performance for container images and running pods is tied to the performance of a single disk. High I/O from pods can impact the stability of the node's operating system.
+
+|*RAID 1 (Mirror) for OS, Separate Disk(s) for Data*
+|Provides redundancy for the operating system by mirroring two disks. A separate, potentially faster disk or set of disks is used for the `/var/lib/containers` directory.
+|This is a common production pattern. It protects the node's OS from a single disk failure and isolates container I/O from the OS disk, improving performance and stability.
+|Requires more physical disks per node, increasing cost. The RAID controller needs to be configured, either in hardware or software.
+
+|*Multiple Disks with Logical Volume Management (LVM)*
+|Uses LVM to abstract physical disks into a flexible volume group. Allows for creating logical volumes for different purposes (e.g., OS, container storage, ephemeral storage) and resizing them as needed.
+|Provides the most flexibility for managing storage on the node. Allows thin provisioning and snapshots at the block level.
+|Adds a layer of complexity to the node's storage configuration. Requires careful planning of volume groups and logical volumes during installation.
+|===
+
+'''
+
+[#ocp-bm-4]
+== OCP-BM-4: Control Plane High Availability
+
+*Architectural Question*::
+How will the control plane nodes be made highly available?
+
+*Assumptions*::
+The cluster is intended for production or other critical workloads requiring high availability.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Three Control Plane Nodes (Standard)*
+|Deploys three control plane nodes, which is the minimum required for a highly available etcd cluster. The cluster can tolerate the failure of one control plane node.
+|This is the standard and recommended configuration for all production OpenShift clusters. It provides a robust and resilient control plane.
+|Requires a minimum of three physical servers dedicated to the control plane role.
+
+|*Five Control Plane Nodes*
+|Deploys five control plane nodes. The etcd cluster can tolerate the failure of two nodes simultaneously.
+|Used for very large-scale clusters or environments where the risk of multiple simultaneous node failures is higher and must be mitigated.
+|Significantly increases the hardware cost and resource footprint of the control plane. This is generally considered overkill for most deployments.
+
+|*Stacked vs. Unstacked Control Plane*
+|In a stacked topology (default), etcd runs as pods on the control plane nodes. In an unstacked topology, etcd is deployed on its own dedicated set of hosts, separate from the control plane components.
+|An unstacked control plane provides better isolation for etcd, protecting it from resource contention with other control plane services. It can simplify etcd backup and management.
+|Requires additional dedicated nodes just for etcd, increasing the cluster's footprint and complexity. This is typically only considered for very large or complex clusters.
+|===
+
+'''
+
+[#ocp-bm-5]
+== OCP-BM-5: Installation Method
+
+*Architectural Question*::
+Which installation method will be used (e.g., IPI, UPI, Assisted Installer, Agent-based)?
+
+*Assumptions*::
+A decision has been made to deploy on a bare metal platform.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Installer-Provisioned Infrastructure (IPI)*
+|Maximizes automation. The installer handles everything from provisioning RHCOS via Ironic to cluster configuration. Ideal for environments with supported BMCs and a desire for a fully integrated, hands-off experience.
+|Requires compatible hardware (BMCs for power management) and a dedicated provisioning network. It is the most opinionated method but also the most automated.
+
+|*User-Provisioned Infrastructure (UPI)*
+|Provides maximum flexibility. The customer prepares the nodes with RHCOS using their own methods, and the installer configures OpenShift on them. Use this when hardware is not IPI-compatible or when deep customization of the OS install is needed.
+|The customer bears more responsibility for pre-installation setup, including OS installation and ignition config distribution. Less automation out-of-the-box compared to IPI.
+
+|*Assisted Installer*
+|A service (available on-premise or on cloud.redhat.com) that provides a UI-driven wizard to guide the installation. It combines the simplicity of a guided process with the flexibility to run on diverse hardware. It performs pre-flight validations.
+|Greatly simplifies the installation experience and reduces the chances of misconfiguration by providing active validation and feedback. Good for teams less familiar with the intricacies of OpenShift installation.
+|Requires connectivity from the nodes to the Assisted Installer service. The service itself becomes a component to manage if deployed on-premise.
+
+|*Agent-based Installer*
+|A variation of the Assisted Installer that uses a discovery ISO and an agent on each node. Removes the need for a dedicated provisioning host and bootstrap VM.
+|Best suited for edge deployments or resource-constrained environments where setting up a separate provisioning infrastructure is impractical. Simplifies networking requirements.
+|Each node must be booted using the agent ISO. It is designed for deployments with a smaller footprint.
+|===
+
+'''
+
+[#ocp-bm-6]
+== OCP-BM-6: Single Node OpenShift (SNO)
+
+*Architectural Question*::
+Will any clusters be deployed on a single node (SNO)?
+
+*Assumptions*::
+The customer has use cases that may not require a full, highly-available cluster, such as edge computing or small development environments.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Standard HA Cluster*
+|A cluster with at least three control plane nodes and two or more worker nodes. This is the standard for all production workloads.
+|Provides high availability and resilience. Can scale to support a large number of applications and users.
+|Has a significant hardware footprint (minimum of 5 nodes for a small production setup). Not cost-effective or practical for very small-scale or edge deployments.
+
+|*Single Node OpenShift (SNO)*
+|A fully functional OpenShift cluster that runs on a single physical server. Both control plane and worker capabilities run on this one node.
+|Perfect for edge sites, small remote offices, or development environments where space, power, and cost are major constraints. Offers a consistent OpenShift experience in a minimal footprint.
+|There is no high availability. If the single node fails, the entire cluster is down. It has limited scalability and is not suitable for critical, centralized workloads. Upgrades will incur downtime for the applications.
+|===
+
+'''
+
+[#ocp-bm-7]
+== OCP-BM-7: Installation Artifact Management
+
+*Architectural Question*::
+How will the `install-config.yaml` file and other installation artifacts be generated and managed?
+
+*Assumptions*::
+The customer understands that the `install-config.yaml` file is the primary input for the installer and contains sensitive information.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Generate and Store Manually*
+|Generate the configuration file using `openshift-install create install-config` and store it on a local machine or a shared drive.
+|Simple and sufficient for a one-time PoC installation. Does not require any special tools.
+|Not a secure or repeatable process. Prone to being lost or falling out of sync. Not suitable for production or automated deployments.
+
+|*Version Control System (e.g., Git)*
+|Store the `install-config.yaml` and other artifacts in a Git repository. Sensitive information like the pull secret should be encrypted (e.g., using Ansible Vault, git-crypt).
+|Provides versioning, auditability, and a single source of truth for the cluster's initial configuration. Enables collaboration among the operations team.
+|Requires discipline in managing the repository and access controls. A process for managing the encryption keys for secrets is necessary.
+
+|*Template-based Generation*
+|Use a templating engine (e.g., Jinja2 with Ansible, Go templates) to generate the `install-config.yaml` from a set of variables stored in a separate file.
+|Allows for creating a standardized template for all clusters. Different environments (e.g., dev, prod) can be deployed consistently by simply changing the variables file. This is a highly scalable and repeatable approach.
+|Adds a layer of abstraction and requires skills with the chosen templating tool. The variable files must be managed as securely as the configuration file itself.
+|===
+
+'''
+
+[#ocp-bm-8]
+== OCP-BM-8: Pre-flight Validation and Troubleshooting
+
+*Architectural Question*::
+What is the strategy for pre-flight validation and troubleshooting of the installation process?
+
+*Assumptions*::
+The customer acknowledges that bare-metal installations can fail due to underlying infrastructure issues (networking, DNS, hardware).
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Manual Validation and `oc adm` tools*
+|Manually check prerequisites (DNS records, DHCP, network connectivity) before installation. If installation fails, use tools like `oc adm release extract` to gather logs from the bootstrap node.
+|This is the baseline approach. It works but can be time-consuming and requires deep knowledge of the installation process to know what to check.
+|Can be slow and error-prone. It may require multiple installation attempts to identify and fix all underlying infrastructure issues.
+
+|*Use the Assisted Installer Service*
+|The Assisted Installer has built-in pre-flight validations. The agent on each node checks for network connectivity, hardware requirements, and other prerequisites, providing clear feedback in the UI before the installation begins.
+|Significantly reduces installation failures by catching common infrastructure problems early. Streamlines the validation process and provides a better user experience.
+|Requires using the Assisted Installer as the installation method.
+
+|*Develop Custom Pre-flight Automation Scripts*
+|Create custom scripts (e.g., Ansible playbooks) that run a series of checks against the infrastructure to validate all prerequisites before launching the OpenShift installer.
+|Provides a repeatable and customizable validation process tailored to the customer's specific environment. Can be integrated into a larger automation workflow.
+|Requires an upfront investment in developing and maintaining the automation scripts. The checks must be kept up-to-date with the requirements of new OpenShift versions.
+|===
+
+= Workshop 3: Networking
+
+'''
+
+[#ocp-net-0]
+== OCP-NET-0: Primary CNI Plugin
+
+*Architectural Question*::
+Which Container Network Interface (CNI) plugin will be used for the primary cluster network?
+
+*Assumptions*::
+The customer understands that the CNI plugin manages all pod-to-pod and service networking within the cluster.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*OpenShift SDN (Default in older versions)*
+|The original and historically default CNI plugin for OpenShift. It is well-understood and stable. It offers basic networking modes like network policy isolation.
+|It is now considered a legacy CNI. OVN-Kubernetes is the default and recommended CNI for new installations, offering a richer feature set. Migration from OpenShift SDN to OVN-Kubernetes is a non-trivial, disruptive procedure.
+
+|*OVN-Kubernetes (Default in current versions)*
+|Provides a more feature-rich software-defined networking implementation, including support for IPsec, hybrid networking, IPv6 dual-stack, and more efficient network policy implementation using Open vSwitch (OVS) and Open Virtual Network (OVN).
+|This is the default and recommended CNI for all new OpenShift 4.x installations. It is actively developed and is the basis for most new networking features.
+|The underlying technologies (OVS, OVN) may be new to network teams more familiar with traditional networking or the simpler OpenShift SDN.
+|===
+
+'''
+
+[#ocp-net-1]
+== OCP-NET-1: IP Addressing Scheme
+
+*Architectural Question*::
+What is the IP addressing scheme and will you use a dual-stack (IPv4/IPv6) configuration?
+
+*Assumptions*::
+The customer has allocated IP address ranges for the cluster. The underlying physical/virtual network infrastructure's support for IPv6 is known.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*IPv4-only*
+|Simplest and most common configuration. All cluster networks (Machine, Service, Cluster) use IPv4 addresses. It is universally supported by all infrastructure and external services.
+|This is the standard for most enterprise environments today where IPv6 has not been fully adopted.
+|May become a limitation in the future as IPv4 address exhaustion becomes more critical. Does not meet requirements for applications or services that must run on IPv6.
+
+|*IPv6-only*
+|All cluster networks use IPv6 addresses. Required for environments that have fully transitioned to IPv6 for compliance or technical reasons.
+|Meets modern networking standards and government mandates in some regions. Eliminates the need for NAT46/DNS64 for accessing IPv6-only external services.
+|The underlying infrastructure and all connected external services (e.g., storage, authentication) *must* fully support IPv6. This is still rare in many enterprise environments.
+
+|*Dual-Stack (IPv4/IPv6)*
+|The cluster is configured with both IPv4 and IPv6 addresses. Pods and Services get an address from each family. Allows applications to communicate over either protocol.
+|Provides the most flexibility, allowing the cluster to support both legacy IPv4 and modern IPv6 applications and services simultaneously. This is the best approach for future-proofing the network.
+|The underlying network infrastructure must support dual-stack routing to and from the cluster nodes. It adds some complexity to DNS and routing configuration. This must be configured at installation time.
+|===
+
+'''
+
+[#ocp-net-2]
+== OCP-NET-2: Network Policy Enforcement
+
+*Architectural Question*::
+How will network policies be used to segment traffic within the cluster?
+
+*Assumptions*::
+The customer has a requirement for microsegmentation and controlling traffic flow between applications (namespaces) inside the cluster.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Default Allow-All (No Policies)*
+|By default, all pods in the cluster can communicate with each other, regardless of which namespace they are in. This is the simplest model.
+|Easy to get started. No risk of accidentally blocking legitimate traffic between applications. Suitable for development or trusted environments.
+|Provides zero network isolation between projects, creating a "flat" network. This is a significant security risk in production or multi-tenant environments, as a compromise in one application can easily spread to others.
+
+|*Default Deny by Namespace*
+|A default-deny policy is applied to each namespace. This means no traffic is allowed into the namespace unless explicitly permitted by another network policy.
+|This is a security best practice (zero-trust networking). It forces application teams to explicitly define their required network flows, leading to a more secure and well-documented network posture.
+|Requires a significant operational overhead. Every application deployment must be accompanied by a corresponding network policy. There is a higher risk of application outages due to misconfigured or missing policies.
+
+|*Hybrid Model (Default Allow, Deny by Exception)*
+|Traffic is allowed by default, but specific network policies are created to isolate critical applications or to block known unwanted traffic patterns.
+|Provides a balance between security and operational ease. Allows teams to secure their most sensitive applications without having to write policies for every single interaction in the cluster.
+|Does not enforce a true zero-trust model. It is easier for unwanted traffic paths to exist if not explicitly blocked. Requires discipline to identify and create the necessary deny policies.
+|===
+
+'''
+
+[#ocp-net-3]
+== OCP-NET-3: Exposing Applications
+
+*Architectural Question*::
+What is the strategy for exposing applications to the external network?
+
+*Assumptions*::
+Applications running in the cluster need to be accessible by users or systems outside the cluster.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Route (Layer 7)*
+|The standard, built-in method for exposing HTTP/S services. Routes are handled by the OpenShift Ingress Controller. Provides features like TLS termination, path-based routing, and host-based routing.
+|Simple, declarative, and tightly integrated with OpenShift. It is the recommended approach for all web-based traffic.
+|It is primarily for HTTP, HTTPS, and WebSockets traffic. It is not suitable for exposing non-HTTP TCP or UDP services.
+
+|*LoadBalancer Service (Layer 4)*
+|Exposes a TCP/UDP service directly via an external load balancer, which is automatically provisioned by a cloud provider integration or an on-premise solution like MetalLB.
+|The standard Kubernetes way to expose TCP/UDP services. It is straightforward and works well for non-HTTP applications like databases or message queues.
+|Requires an external load balancer integration. Each LoadBalancer service consumes an IP address from an external pool, which can be a scarce resource.
+
+|*NodePort Service (Layer 4)*
+|Exposes a service on a static port on every node in the cluster. External traffic can then be directed to any node on that port.
+|Works on any infrastructure without needing a special load balancer integration. It can be a simple way to get external traffic into the cluster.
+|The customer is responsible for configuring their own external load balancer to distribute traffic across the nodes on the given port. Managing port allocations can be challenging, and it is generally not recommended for production web traffic.
+|===
+
+'''
+
+[#ocp-net-6]
+== OCP-NET-6: Ingress Controller Exposure
+
+*Architectural Question*::
+How will the Ingress Controller be exposed to the external network?
+
+*Assumptions*::
+The customer will use the default OpenShift Ingress Controller to manage Routes. A decision needs to be made on how to make it reachable.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Cloud Load Balancer (Default on Cloud)*
+|On a public cloud, the Ingress Controller automatically provisions and integrates with the cloud's native L4 load balancer service to receive traffic.
+|This is the most seamless and highly available option on public clouds. It leverages the cloud provider's managed, scalable load balancing infrastructure.
+|Incurs cloud provider costs for the load balancer. The configuration options are dependent on the specific cloud provider's load balancer service.
+
+|*LoadBalancer Service with MetalLB (On-Premise)*
+|Use the MetalLB Operator to provide a network load-balancer integration for bare-metal or on-premise clusters. MetalLB assigns an external IP from a pre-configured pool to the Ingress Controller service.
+|This is the standard and recommended way to expose the Ingress Controller on-premise. It mimics the cloud experience and automates the IP address assignment.
+|Requires a pool of available IP addresses on the external network that can be dedicated to MetalLB. The network team must be able to route traffic for this IP pool to the OpenShift worker nodes.
+
+|*NodePort Service*
+|Expose the Ingress Controller on a specific port (e.g., 30080, 30443) on every worker node. The customer then uses their own external load balancer (e.g., F5, NGINX) to balance traffic to the worker nodes on that port.
+|Provides maximum flexibility and allows integration with existing, potentially feature-rich enterprise load balancers.
+|The customer is fully responsible for the configuration, management, and high availability of their external load balancer. This adds an operational burden outside of OpenShift.
+
+|*HostNetwork*
+|The Ingress Controller pods run directly on the host network of the nodes they are scheduled on, binding directly to ports 80 and 443.
+|Offers the highest network performance by removing a layer of network translation. Useful in high-throughput scenarios.
+|The Ingress Controller pods will compete for ports 80/443 with other services on the host. It can create scheduling constraints, as the pods can only run on nodes where those ports are available.
+|===
+
+'''
+
+= Workshop 4: Storage
+
+'''
+
+[#ocp-stor-0]
+== OCP-STOR-0: Default Storage Class
+
+*Architectural Question*::
+What is the default storage class for the cluster?
+
+*Assumptions*::
+The cluster will host stateful applications that require persistent storage. A default storage class simplifies the experience for developers who can then request storage without needing to know the name of a specific storage class.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*No Default Storage Class*
+|Forces all storage requests (PersistentVolumeClaims) to explicitly specify which storage class they want to use. This encourages deliberate choices about storage tiers.
+|This approach provides maximum control to the platform administrators and avoids accidental consumption of the wrong type of storage.
+|It adds friction for developers, who must now be aware of the available storage classes. A PVC request that does not specify a class will remain pending indefinitely.
+
+|*A General-Purpose, File-based Storage Class (e.g., ODF CephFS)*
+|Provides a flexible, shared filesystem (RWX) as the default. This is versatile and works for a wide range of applications, including those that require shared access across multiple pods.
+|CephFS provided by OpenShift Data Foundation (ODF) is a robust, integrated choice that supports `ReadWriteMany`. It simplifies the developer experience for a broad set of use cases.
+|File storage can have slightly higher latency than block storage. Not all applications are optimized for or require shared file storage.
+
+|*A Performance-Oriented, Block-based Storage Class (e.g., ODF Ceph RBD)*
+|Provides high-performance block storage (RWO) as the default. This is ideal for performance-sensitive applications like databases that require dedicated, low-latency storage.
+|Setting a high-performance tier as the default ensures that critical applications get the best possible storage. Ceph RBD from ODF is a common choice for this.
+|`ReadWriteOnce` (RWO) block storage cannot be shared between pods. Developers needing shared storage (RWX) would need to explicitly request a different storage class. This tier is often more expensive.
+|===
+
+'''
+
+[#ocp-stor-1]
+== OCP-STOR-1: Persistent Storage Type
+
+*Architectural Question*::
+What type of persistent storage will be used for stateful applications?
+
+*Assumptions*::
+The customer has a clear understanding of their application portfolio's storage requirements (e.g., databases, message queues, CI/CD tools, shared file repositories).
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Software-Defined Storage (SDS) - (e.g., OpenShift Data Foundation)*
+|Deploys a storage layer directly within OpenShift, using local storage devices on the worker nodes. ODF provides unified block, file, and object storage.
+|Provides a fully integrated, cloud-native storage experience managed via Kubernetes APIs. It is infrastructure-agnostic and simplifies Day 2 operations like expansion and monitoring.
+|Consumes CPU, memory, and disk resources from the worker nodes to run the storage services. Requires careful capacity and performance planning for the underlying nodes.
+
+|*Traditional Enterprise Storage Array (via CSI)*
+|Integrate the cluster with an existing storage array (e.g., NetApp, Pure Storage, Dell PowerStore/PowerFlex) using the vendor-provided CSI driver.
+|Leverages existing investments in enterprise storage. Allows the storage team to use familiar tools and processes for managing capacity, performance, and data protection (snapshots, replication).
+|Creates a dependency on an external system. The performance and features available to OpenShift are limited by the capabilities of the storage array and its CSI driver.
+
+|*Cloud Provider Storage (via CSI)*
+|Use the native persistent storage services of the public cloud provider where the cluster is deployed (e.g., AWS EBS/EFS, Azure Disk/Files, GCP Persistent Disk/Filestore).
+|Offers seamless integration, elastic scalability, and a pay-as-you-go cost model. It is the simplest and most common choice for clusters running in a public cloud.
+|Creates a vendor lock-in to the cloud provider's storage ecosystem. Data portability between different clouds or back to on-premise can be challenging. Performance tiers and costs must be carefully managed.
+|===
+
+'''
+
+[#ocp-stor-2]
+== OCP-STOR-2: Storage Provisioning Method
+
+*Architectural Question*::
+How will storage be provisioned (dynamic or static)?
+
+*Assumptions*::
+Applications will need to claim persistent storage volumes.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Dynamic Provisioning (Recommended)*
+|When a developer creates a PersistentVolumeClaim (PVC), the storage backend (via its CSI driver) automatically creates a matching PersistentVolume (PV) on-demand.
+|This is the standard cloud-native approach. It enables full self-service for developers and scales without manual intervention from administrators. It is the basis for all modern storage automation.
+|Requires a storage backend and a CSI driver that supports dynamic provisioning. The administrator gives up fine-grained control over the creation of every single volume.
+
+|*Static Provisioning*
+|The cluster administrator manually pre-creates a pool of PersistentVolumes. When a developer creates a PVC, Kubernetes tries to find a matching PV from this pool.
+|Gives the administrator complete control over every storage volume that is created and exposed to the cluster. Can be useful for integrating with older storage systems or for very strict governance models.
+|Does not scale. It creates a manual bottleneck for the operations team and prevents developer self-service. If no matching PV is available in the pool, PVCs will remain pending until an admin manually creates one.
+|===
+
+'''
+
+[#ocp-stor-3]
+== OCP-STOR-3: Persistent Data Backup and Recovery
+
+*Architectural Question*::
+What is the backup and recovery strategy for persistent data?
+
+*Assumptions*::
+The data stored in persistent volumes is critical and must be protected against corruption, accidental deletion, or application failure.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Kubernetes-Native Backup Tool (e.g., OADP Operator)*
+|Use a tool designed specifically for Kubernetes. The OpenShift API for Data Protection (OADP) Operator, based on the upstream Velero project, backs up not only the PV data but also the associated Kubernetes objects (PVCs, Deployments, etc.).
+|Provides application-consistent backups. Restoring an application also restores its configuration, secrets, and service definitions, which is critical for a successful recovery in Kubernetes. This is the recommended approach.
+|Requires installing and managing the OADP Operator. The backup performance is dependent on the underlying storage system's ability to create snapshots efficiently.
+
+|*Traditional VM-level or File-level Backup*
+|Use existing backup software that operates at the virtual machine level (e.g., Veeam, Cohesity for VMs) or has agents that run inside the worker nodes to back up file paths.
+|Leverages existing backup infrastructure and skills. The backup team can use familiar tools and processes.
+|This approach is not Kubernetes-aware. It cannot capture the state of the Kubernetes objects. A restore would only bring back the raw data, requiring a complex and manual process to redeploy the applications and reconnect them to the restored volumes.
+
+|*Application-Native Backup*
+|Rely on the backup and restore capabilities built into the application itself (e.g., using `pg_dump` for a PostgreSQL database).
+|Can provide the most consistent backup possible for a specific application, as the tool understands the application's internal state.
+|This is not a scalable or centralized strategy. Every application requires its own unique backup process. There is no unified way to manage, schedule, or monitor backups across the cluster.
+|===
+
+'''
+
+[#ocp-stor-6]
+== OCP-STOR-6: CSI Driver Deployment
+
+*Architectural Question*::
+Which Container Storage Interface (CSI) drivers will be deployed on the cluster?
+
+*Assumptions*::
+The cluster will need to integrate with one or more storage backends, and the CSI specification is the standard way to do this.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Single, Unified CSI Driver (e.g., ODF)*
+|Deploy a single storage solution like OpenShift Data Foundation that provides a unified CSI driver for block, file, and object storage needs.
+|Simplifies cluster configuration and management. Provides a consistent storage experience for all applications regardless of their specific needs.
+|May not be the most cost-effective or performant solution for every single workload. It assumes a "one-size-fits-all" approach to storage.
+
+|*Multiple CSI Drivers for Different Tiers/Backends*
+|Deploy several CSI drivers in the same cluster. For example, a driver for a high-performance SAN, another for a scale-out NAS, and another for object storage.
+|Allows the platform to offer a service catalog of different storage tiers, enabling application teams to choose the most appropriate and cost-effective option for their workload.
+|Increases the complexity of cluster administration. Each CSI driver is another component to install, manage, and update. Developers need to be educated on the differences between the available storage classes.
+|===
+
+'''
+
+[#ocp-stor-7]
+== OCP-STOR-7: Volume Expansion
+
+*Architectural Question*::
+What is the strategy for managing volume expansion?
+
+*Assumptions*::
+Applications may run out of space on their persistent volumes over time and will require a way to increase capacity without downtime.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Enable Online Volume Expansion*
+|Configure the StorageClass to allow volume expansion (`allowVolumeExpansion: true`). A user can then edit their PVC and request a larger size, and the CSI driver will expand the underlying volume automatically.
+|This is the standard, cloud-native method. It provides a seamless, self-service way for users to manage their storage capacity without needing to migrate data or suffer application downtime.
+|The underlying storage backend and its CSI driver *must* support online volume expansion. Not all storage systems have this capability.
+
+|*Manual Migration (Expansion Not Enabled)*
+|Do not enable volume expansion. If an application needs more space, the user must provision a new, larger PV, stop the application, copy the data from the old volume to the new one, and redeploy the application.
+|This approach is used when the storage backend does not support online expansion. It gives the administrator full control over the data migration process.
+|This process is manual, disruptive, and error-prone. It causes application downtime and creates a significant operational burden for both developers and administrators.
+|===
+
+'''
+
+[#ocp-stor-8]
+== OCP-STOR-8: CSI Volume Snapshots
+
+*Architectural Question*::
+Will you use CSI volume snapshots for application data backup and recovery?
+
+*Assumptions*::
+The customer needs a way to create point-in-time, crash-consistent copies of their persistent volumes for operational recovery or cloning.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Enable and Use CSI Snapshots*
+|Install the CSI snapshot controller components and create `VolumeSnapshotClass` objects. Users can then create `VolumeSnapshot` resources to trigger the creation of a snapshot on the storage backend.
+|Provides a standardized, Kubernetes-native API for triggering and managing storage snapshots. It is the foundation for most Kubernetes-native backup tools (like OADP) and is essential for effective data protection.
+|The underlying storage backend and its CSI driver must fully support the CSI snapshot specification. The customer is responsible for managing the lifecycle of the snapshots.
+
+|*Rely on External Storage Array Snapshot Schedules*
+|Do not use the CSI snapshot feature. Instead, rely on the storage administrators to schedule and manage snapshots directly on the storage array using its native tools.
+|Leverages existing processes and schedules that the storage team is already familiar with.
+|This approach is not Kubernetes-aware. The snapshots are not visible or manageable via the Kubernetes API. Restoring data from such a snapshot is a manual process that requires coordination between the OpenShift admin and the storage admin.
+|===
+
+= Workshop 5: Security
+
+'''
+
+[#ocp-sec-6]
+== OCP-SEC-6: Identity Provider (IdP)
+
+*Architectural Question*::
+Which identity provider (IdP) will be integrated with the cluster for user authentication?
+
+*Assumptions*::
+The customer has a central, corporate identity management system. Users should not be managed locally within OpenShift.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*LDAP / Active Directory*
+|Integrates directly with the customer's existing LDAP or Microsoft Active Directory service. This is a very common choice in traditional enterprise environments.
+|Leverages the existing user directory that all enterprise administrators are familiar with. It's a straightforward integration for authentication and group management.
+|Requires direct network connectivity from the OpenShift cluster to the LDAP/AD servers. The configuration requires specifying service account credentials, server hosts, and schema mappings.
+
+|*OpenID Connect (OIDC)*
+|Integrates with a modern, OIDC-compliant identity provider (e.g., Keycloak/Red Hat SSO, Okta, Azure AD, Ping Identity). This is the recommended and most flexible approach.
+|OIDC is a modern, web-friendly authentication protocol based on OAuth 2.0. It decouples the cluster from direct access to the user directory and provides features like Single Sign-On (SSO) and Multi-Factor Authentication (MFA).
+|Requires an OIDC provider to be available and configured. The OpenShift cluster needs to be registered as an OIDC client within the provider, which involves exchanging a client ID and secret.
+
+|*HTPasswd*
+|Uses a flat file generated by the `htpasswd` utility to manage a local list of users and their passwords.
+|Extremely simple to set up for proofs of concept, temporary clusters, or small lab environments. It has no external dependencies.
+|This is **not** suitable for production or any multi-user environment. There is no central management, no password policy enforcement, and no integration with enterprise identities. It should only be used for non-critical, temporary clusters.
+|===
+
+'''
+
+[#ocp-sec-7]
+== OCP-SEC-7: RBAC Management Strategy
+
+*Architectural Question*::
+What is the strategy for managing Role-Based Access Control (RBAC) for users and groups?
+
+*Assumptions*::
+The principle of least privilege will be applied. Users and teams should only have the permissions they need to perform their jobs.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Manual RBAC Management*
+|Cluster administrators manually create `RoleBinding` and `ClusterRoleBinding` objects using the `oc adm policy` command or by applying YAML manifests.
+|Provides the most granular and direct control over permissions. It is suitable for small teams or for managing a few highly privileged roles.
+|Does not scale. It is a manual, error-prone process that can lead to inconsistent permissions and security gaps. It is difficult to audit and manage across many projects and users.
+
+|*Group-based RBAC Synchronization*
+|Synchronize user groups from the corporate identity provider (e.g., LDAP/AD groups, OIDC claims) with OpenShift groups. Permissions (RoleBindings) are then assigned to these synchronized groups rather than to individual users.
+|This is the recommended approach for any enterprise deployment. When a user is added to or removed from a group in the central IdP, their permissions in OpenShift are automatically updated. It centralizes and simplifies user access management.
+|Requires the IdP integration to be configured to provide group membership information. A naming convention for groups should be established to make permissions clear and manageable.
+
+|*Automated RBAC via GitOps*
+|All `RoleBinding` and `ClusterRoleBinding` manifests are stored declaratively in a Git repository and applied automatically by a GitOps tool like OpenShift GitOps (Argo CD).
+|Provides a fully declarative, auditable, and version-controlled history of all permissions in the cluster. Changes to permissions must go through a peer-reviewed Git workflow (e.g., a pull request).
+|Requires a mature GitOps practice. There is a risk of misconfiguration if someone applies a manifest with overly broad permissions (`cluster-admin`) through the GitOps tool.
+|===
+
+'''
+
+[#ocp-sec-8]
+== OCP-SEC-8: Security Context Constraints (SCCs)
+
+*Architectural Question*::
+What is the policy for assigning and using Security Context Constraints (SCCs)?
+
+*Assumptions*::
+The customer understands that SCCs are an OpenShift-specific security feature that controls what privileged actions pods can perform.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Use Default `restricted` SCC Only*
+|Enforce a policy where all user workloads must be able to run with the default `restricted` SCC, which is the most secure. This SCC prevents pods from running as root, accessing host resources, or having privileged capabilities.
+|This is the most secure posture. It forces developers to build secure, cloud-native applications that do not require unnecessary privileges, significantly reducing the cluster's attack surface.
+|Some third-party or legacy applications may not be able to run under such restrictive permissions and may require custom SCCs. This can create friction for teams trying to migrate older workloads.
+
+|*Allow Use of Broader Built-in SCCs (e.g., `anyuid`)*
+|Allow developers to use less restrictive, but still built-in, SCCs like `anyuid` (which allows running as any user ID but is otherwise restricted) for applications that require it.
+|Provides a pragmatic balance between security and compatibility. It allows a wider range of applications to run on the platform without granting full privileged access.
+|Increases the potential attack surface compared to the `restricted` SCC. Requires a clear process for reviewing and approving the use of less restrictive SCCs.
+
+|*Create Custom SCCs*
+|For specific applications with unique privilege requirements, create custom SCCs that grant only the exact permissions needed and nothing more.
+|Adheres to the principle of least privilege. It is the most precise way to enable applications that cannot run with the default SCCs, without granting them overly broad permissions like `privileged`.
+|Creating and managing custom SCCs requires a deep understanding of container security and Linux capabilities. A poorly written custom SCC can inadvertently create a major security hole. This should be a carefully governed process.
+|===
+
+'''
+
+[#ocp-sec-9]
+== OCP-SEC-9: FIPS Compliance
+
+*Architectural Question*::
+Will the cluster need to operate in FIPS compliant mode?
+
+*Assumptions*::
+The customer may be subject to regulatory or compliance requirements (e.g., US federal government) that mandate the use of FIPS 140-2/3 validated cryptographic modules.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*FIPS Mode Disabled (Default)*
+|The cluster uses the standard cryptographic libraries provided by Red Hat Enterprise Linux CoreOS.
+|Provides the highest performance and is the standard for commercial and non-regulated environments.
+|Does not meet the requirements for federal agencies or other organizations that are mandated to use FIPS-validated cryptography.
+
+|*FIPS Mode Enabled*
+|The cluster is installed with FIPS mode enabled. This places the cryptographic modules in RHCOS into a mode that enforces the use of FIPS-validated algorithms and performs self-tests on startup.
+|This is mandatory for meeting specific government and public sector compliance standards.
+|Enabling FIPS mode *must* be done at installation time and cannot be changed later. It can introduce a minor performance overhead for cryptographic operations. Some community operators or third-party tools may not be FIPS compliant and may not function correctly.
+|===
+
+'''
+
+[#ocp-sec-10]
+== OCP-SEC-10: SELinux Profiles
+
+*Architectural Question*::
+What is the strategy for applying security profiles like Security-Enhanced Linux (SELinux)?
+
+*Assumptions*::
+SELinux provides an additional layer of mandatory access control (MAC) to further isolate containers and protect the host kernel.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Enforcing Mode (Default)*
+|SELinux is enabled and in enforcing mode on all nodes by default. The container runtime automatically labels each container with a unique SELinux context, providing strong isolation between containers and from the host.
+|This is a critical security feature of OpenShift and should never be disabled. It provides deep, kernel-level defense against container breakout vulnerabilities.
+|In very rare cases, a poorly written application or a specific type of workload might have issues with the default SELinux policy, requiring troubleshooting or a custom policy.
+
+|*Permissive Mode (Troubleshooting Only)*
+|SELinux is enabled, but policies are not enforced. Any violations are logged but not blocked.
+|This mode should only be used for temporary troubleshooting to determine if an application issue is related to an SELinux denial.
+|Running a cluster in permissive mode for any extended period of time negates a major security benefit of the platform and is strongly discouraged.
+
+|*Disabled (Not Recommended or Supported)*
+|Disabling SELinux entirely.
+|This is unsupported and creates a massive security risk. It removes one of the fundamental security pillars of the platform.
+|Disabling SELinux will cause the cluster to be in an unsupported state and will fail compliance checks.
+|===
+
+= Workshop 6: Platform Administration and Operations
+
+'''
+
+[#ocp-mgt-0]
+== OCP-MGT-0: Cluster Upgrade Strategy
+
+*Architectural Question*::
+What is the cluster upgrade and update strategy?
+
+*Assumptions*::
+The customer understands that OpenShift provides frequent updates (z-stream/patch releases) and less frequent minor version upgrades (y-stream). Upgrades are a critical, recurring operational task.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Stable Channel*
+|This channel is updated with a new minor version only after a delay, once it has been qualified by Red Hat SRE teams in production environments. It provides the most vetted and stable release path.
+|This is the recommended channel for most production clusters. It prioritizes stability and reliability over immediate access to the newest features.
+|The cluster will not receive new minor versions as soon as they are released to the Fast or Candidate channels.
+
+|*Fast Channel*
+|This channel is updated with new minor versions as soon as they are generally available. It also receives beta and pre-release builds.
+|Provides the quickest access to new features and enhancements. Suitable for development or test environments where trying out new functionality is a priority.
+|Exposes the cluster to releases that have had less soak time in production environments, potentially increasing the risk of encountering bugs.
+
+|*Candidate Channel*
+|Includes release candidates for new minor versions. It is even more aggressive than the Fast channel.
+|For pre-production or test clusters that are used to validate applications against upcoming OpenShift releases.
+|This channel is unstable by definition and should **never** be used for production clusters.
+
+|*EUS-to-EUS Upgrades*
+|Remain on an Extended Update Support (EUS) version for a longer period and perform larger jumps from one EUS version to the next.
+|Reduces the frequency of minor version upgrades, which can lower the operational burden for teams that prefer less frequent, major changes.
+|The cluster will not receive new features for an extended period. The upgrade path between EUS versions is more complex and may require intermediate hops, potentially leading to longer maintenance windows.
+|===
+
+'''
+
+[#ocp-mgt-1]
+== OCP-MGT-1: Node Maintenance and Scaling
+
+*Architectural Question*::
+How will node maintenance and scaling be handled?
+
+*Assumptions*::
+Nodes will occasionally need to be taken down for hardware maintenance, and the cluster may need to grow or shrink to meet demand.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Manual Node Draining and Scaling*
+|An administrator manually uses `oc adm drain` to safely evacuate all pods from a node before shutting it down. For scaling, an admin manually adds or removes a node from the cluster.
+|Provides complete, direct control over all node operations. It is a straightforward process for small clusters with infrequent changes.
+|This is a manual, reactive process. It does not scale well for large clusters and can be slow in response to sudden changes in application load. It is prone to human error.
+
+|*Use the Machine API (for IPI / supported platforms)*
+|Use `Machine` and `MachineSet` objects to manage the underlying nodes. To scale, an admin increases the replica count on a MachineSet. For maintenance, an admin deletes the Machine object, and the Machine API automatically provisions a new one to replace it.
+|This is the standard cloud-native approach. It treats nodes as cattle, not pets. It ensures that the cluster can automatically recover from a node failure and simplifies scaling operations.
+|Requires the cluster to be installed on a platform that supports the Machine API (e.g., IPI on bare metal, vSphere, public clouds). The customer must be comfortable with the idea of nodes being automatically destroyed and recreated.
+
+|*Use the Cluster Autoscaler*
+|The Cluster Autoscaler automatically adds or removes worker nodes from the cluster based on pod resource requests. If pods are pending due to a lack of resources, it scales up. If nodes are underutilized, it scales down.
+|Provides the most efficient use of resources by automatically matching cluster capacity to workload demand. It is essential for environments with bursty or unpredictable loads.
+|The autoscaler works by creating and deleting `Machine` objects, so it also requires a Machine API-enabled platform. Scale-up and scale-down parameters must be carefully tuned to avoid excessive node churn or slow response times.
+|===
+
+'''
+
+[#ocp-mgt-9]
+== OCP-MGT-9: Machine API for Node Management
+
+*Architectural Question*::
+How will the Machine API be used for node management and recovery?
+
+*Assumptions*::
+The cluster is deployed on an infrastructure that supports Installer-Provisioned Infrastructure (IPI) or has a configured Machine API provider.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Reactive Management (Default)*
+|Rely on an administrator to manually delete a `Machine` object when a node fails. The Machine API will then automatically provision a replacement.
+|Simple and low-risk. The automated recovery is only triggered by a deliberate administrative action.
+|This is not a fully automated failure recovery process. The time to recovery depends on an administrator noticing the failure and taking action.
+
+|*Proactive Management with MachineHealthChecks*
+|Configure `MachineHealthCheck` resources. These checks monitor the health of nodes and can be configured to automatically delete the `Machine` object for an unhealthy node, triggering its replacement.
+|Provides fully automated, hands-off recovery from node failures (e.g., a `NotReady` status). It is a key feature for maintaining a self-healing infrastructure.
+|The health check parameters (e.g., timeout before remediation) must be carefully configured to avoid remediating nodes that are just temporarily unavailable due to a transient network issue or a slow reboot.
+
+|*Do Not Use Machine API for Recovery*
+|Manage nodes entirely outside of the Machine API, even if it is available. Rely on traditional server monitoring and manual recovery processes.
+|Fits legacy operational models where infrastructure teams are not comfortable with a Kubernetes-based system having the power to destroy and create infrastructure resources (VMs).
+|This negates one of the key benefits of running OpenShift on a supported IPI platform. The cluster loses its self-healing capabilities at the node level, and recovery becomes a slow, manual process.
+|===
+
+'''
+
+[#ocp-mgt-13]
+== OCP-MGT-13: OLM Catalog Management
+
+*Architectural Question*::
+How will Operator Lifecycle Manager (OLM) catalogs (e.g., Red Hat, Certified, Community) be managed and restricted?
+
+*Assumptions*::
+The customer will use Operators to extend the functionality of the cluster. A governance model is needed to control which Operators can be installed.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Enable All Default Catalogs*
+|Leave all the default catalogs (`redhat-operators`, `certified-operators`, `community-operators`) enabled for all users.
+|Provides the widest selection of Operators to all users, enabling maximum self-service and experimentation.
+|This is a significant security and stability risk. The `community-operators` catalog contains unvetted, community-supported software that may not meet enterprise standards for security or reliability.
+
+|*Disable Community Catalog Cluster-wide*
+|Disable the `community-operators` catalog source globally. Users can only install Operators that have been certified by Red Hat or are provided directly by Red Hat.
+|This is a common security best practice. It establishes a baseline of trust and supportability for all software installed on the cluster, preventing the installation of potentially risky community Operators.
+|If a specific community Operator is required for a project, a custom catalog source would need to be created to make it available, adding an administrative step.
+
+|*Create Custom, Curated Catalogs*
+|Disable all default catalogs and create one or more custom catalog sources. These custom catalogs contain only a curated, approved list of Operators (can be a subset of the Red Hat catalogs plus specific community or in-house Operators).
+|Provides the highest level of governance. The platform team has complete control over the exact versions of every Operator that can be installed on the cluster, ensuring all software meets strict internal standards.
+|Requires a significant operational overhead to build and maintain the custom catalogs. The process of mirroring, filtering, and publishing the catalogs needs to be automated.
+|===
+
+'''
+
+[#ocp-mgt-8]
+== OCP-MGT-8: etcd Backup and Restore
+
+*Architectural Question*::
+What is the strategy for backing up and restoring the etcd datastore?
+
+*Assumptions*::
+etcd contains the entire state of the cluster and must be backed up to recover from a catastrophic failure (e.g., loss of all control plane nodes).
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Rely on Automatic Backups (Default)*
+|By default, the `cluster-backup.sh` script is run automatically on each control plane node, creating snapshots of etcd.
+|Provides a basic, out-of-the-box disaster recovery mechanism without any extra configuration.
+|These backups are stored locally on the control plane nodes. If the nodes themselves are lost (e.g., due to storage failure), the backups are also lost.
+
+|*Automate Off-cluster Backup*
+|Create a `CronJob` within the cluster that runs the `cluster-backup.sh` script and then copies the resulting snapshot to a remote, external location (e.g., an S3 bucket, an NFS share).
+|This is the recommended approach. It ensures that the etcd backup is stored safely off-cluster, protecting it from a total failure of the control plane infrastructure.
+|The customer is responsible for creating the `CronJob` and managing the secure storage location. A process for regularly testing the restore from the off-cluster backup should be established.
+
+|*No Backup Strategy*
+|Do not perform any backups and rely solely on the high availability of the three-node etcd cluster.
+|Extremely simple, as it requires no action.
+|This is not a valid disaster recovery strategy. The loss of quorum in the etcd cluster (losing 2 of 3 nodes) will result in the total and irrecoverable loss of the cluster. This is unacceptable for any production system.
+|===
+
+= Workshop 7: Observability
+
+'''
+
+[#ocp-mon-3]
+== OCP-MON-3: User-Defined Project Monitoring
+
+*Architectural Question*::
+Will user-defined workloads in custom projects be enabled for monitoring?
+
+*Assumptions*::
+The customer wants to allow development teams to scrape custom application metrics using the built-in OpenShift Monitoring stack (Prometheus).
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Disabled by Default*
+|Do not enable the user-defined workload monitoring feature. The monitoring stack will only collect cluster and infrastructure metrics.
+|This minimizes the resource consumption (CPU, memory, storage) of the monitoring stack by not ingesting a potentially large volume of application metrics. It maintains a strict separation between platform and application monitoring.
+|Development teams cannot use the built-in Prometheus to monitor their applications. They would need to deploy and manage their own separate monitoring stack (e.g., a second Prometheus instance), which adds complexity and operational overhead.
+
+|*Enabled for All User Projects*
+|Enable the user-defined workload monitoring feature. This allows developers in any project to create `ServiceMonitor` and `PodMonitor` objects to have their application metrics automatically scraped.
+|Provides a seamless, self-service monitoring experience for developers. They can leverage the same powerful, highly-available Prometheus stack that the platform itself uses, without having to manage it. This is the recommended approach for enabling DevOps practices.
+|The resource requirements for the OpenShift Monitoring stack will increase, proportional to the number of projects and the volume of metrics being scraped. Platform administrators must configure resource limits and retention policies to prevent runaway metric ingestion from impacting the cluster.
+|===
+
+'''
+
+[#ocp-mon-4]
+== OCP-MON-4: Long-Term Metrics Retention
+
+*Architectural Question*::
+What is the long-term retention strategy for monitoring metrics? Will they be federated or sent to a remote storage system?
+
+*Assumptions*::
+The default 15-day retention period for metrics in the on-cluster Prometheus is insufficient for long-term trending, analysis, or compliance requirements.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Rely on Default 15-Day Retention*
+|Keep the default configuration. Metrics are stored for a short term on the cluster and are then deleted.
+|This is the simplest option and requires no additional infrastructure or configuration. It is sufficient for real-time operational monitoring and short-term troubleshooting.
+|It is impossible to perform historical analysis or generate trend reports beyond the 15-day window. This does not meet the compliance or auditing requirements of many organizations.
+
+|*Prometheus Federation*
+|An external, customer-managed Prometheus instance is configured to periodically scrape a subset of metrics from the in-cluster Prometheus.
+|Leverages existing Prometheus infrastructure and expertise. Gives the customer full control over which metrics are retained and for how long.
+|The customer is responsible for the entire lifecycle of the external Prometheus instance (installation, HA, storage, backups). Federation scrapes can place additional load on the in-cluster Prometheus.
+
+|*Remote Write to a Compatible Backend*
+|Configure the in-cluster Prometheus to forward all or a subset of its metrics in real-time to a remote, scalable storage backend that supports the Prometheus remote-write protocol (e.g., Thanos, Cortex, M3DB, or a vendor platform like Datadog).
+|This is the most scalable and robust solution for long-term storage. It offloads the storage burden from the cluster and enables advanced analytics and global querying capabilities, especially with a tool like Thanos.
+|Requires the deployment and management of a compatible remote storage backend, which can be a complex undertaking. Alternatively, it involves a subscription cost for a third-party monitoring service.
+|===
+
+'''
+
+[#log-0]
+== LOG-0: Log Collection Agent
+
+*Architectural Question*::
+What is the log collection agent strategy (e.g., Vector default, or Fluentd for legacy compatibility)?
+
+*Assumptions*::
+The OpenShift Logging Operator will be deployed to collect logs from nodes and applications.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Vector (Default)*
+|Use Vector as the log collection agent (`collection.type: vector`). Vector is a modern, high-performance agent written in Rust, designed for efficiency and reliability.
+|This is the default and recommended agent for new deployments. It offers significantly better performance and lower resource consumption compared to Fluentd, especially at scale.
+|Teams with existing custom Fluentd plugins or configurations would need to translate their logic to work with Vector's configuration, which has a different format and capabilities.
+
+|*Fluentd*
+|Use Fluentd as the log collection agent (`collection.type: fluentd`). Fluentd is a well-established, plugin-rich agent from the CNCF.
+|Provides backward compatibility for environments that have a heavy investment in custom Fluentd plugins or have operational expertise specifically with Fluentd.
+|Fluentd has a higher resource footprint (CPU/memory) than Vector. It is now considered the legacy option for OpenShift Logging and may not receive new feature development at the same pace as Vector.
+|===
+
+'''
+
+[#log-2]
+== LOG-2: Log Forwarding Strategy
+
+*Architectural Question*::
+What is the log forwarding strategy? Which log types (application, infrastructure, audit) will be sent to which external systems?
+
+*Assumptions*::
+The on-cluster log storage is for short-term operational viewing. A centralized, external system (e.g., a SIEM like Splunk, or an observability platform like Elasticsearch) is the destination for long-term storage, analysis, and alerting.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Forward All Logs to a Single System*
+|Configure a single `ClusterLogForwarder` pipeline that sends all log types (`application`, `infrastructure`, `audit`) to one central external system.
+|Simplifies configuration and provides a single pane of glass for all log data. Easy to manage and operate.
+|This can be expensive, as it sends a high volume of potentially low-value logs to a system that may charge for ingestion and storage. It may also mix sensitive audit logs with general application logs in a way that complicates access control.
+
+|*Selective Forwarding based on Log Type*
+|Configure multiple pipelines in the `ClusterLogForwarder`. For example, send `audit` logs to a secure SIEM, `infrastructure` logs to an operations-focused logging platform, and `application` logs to a developer-accessible system.
+|This is the recommended approach for production. It provides maximum flexibility, allowing logs to be sent to the most appropriate and cost-effective system. It enhances security by isolating sensitive audit logs.
+|The `ClusterLogForwarder` custom resource configuration is more complex, as it requires defining multiple inputs, pipelines, and outputs. Careful planning is needed to ensure all required logs are routed correctly.
+
+|*No Forwarding (On-cluster Storage Only)*
+|Do not configure any log forwarding. All logs are only stored in the default `LokiStack` instance inside the cluster.
+|Requires zero configuration and no external dependencies. Sufficient for small labs or temporary development environments.
+|This is not a viable strategy for production. The on-cluster storage is ephemeral and has a limited retention and query capacity. It does not meet requirements for long-term audit, compliance, or historical analysis.
+|===
+
+'''
+
+[#trace-0]
+== TRACE-0: Distributed Tracing Implementation
+
+*Architectural Question*::
+Will distributed tracing be implemented for applications on the platform?
+
+*Assumptions*::
+The customer is developing or deploying microservices-based applications and needs to understand the flow of requests across multiple services to troubleshoot latency and errors.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Implement Distributed Tracing*
+|Deploy a distributed tracing platform and instrument applications to propagate trace context. This provides deep visibility into the application call graph.
+|Essential for debugging and optimizing microservices. It allows developers to visualize the entire lifecycle of a request, identify performance bottlenecks, and pinpoint the source of errors across service boundaries.
+|Requires significant developer effort. Applications must be instrumented with OpenTelemetry SDKs (or similar) to generate and propagate trace data. It also requires deploying and managing a tracing backend like Jaeger.
+
+|*Do Not Implement Distributed Tracing*
+|Rely solely on logs and metrics for application observability.
+|Simpler from an operational and development perspective. No need to manage a tracing platform or modify application code for instrumentation.
+|Troubleshooting complex issues in a microservices environment becomes extremely difficult. It is nearly impossible to trace a single user request through a chain of multiple services using only logs and metrics. This leads to a much higher Mean Time to Resolution (MTTR).
+|===
+
+'''
+
+[#trace-2]
+== TRACE-2: Telemetry Collection Strategy
+
+*Architectural Question*::
+Will the Red Hat build of OpenTelemetry be deployed to collect and process telemetry data (metrics, logs, traces)?
+
+*Assumptions*::
+Applications will be instrumented to emit telemetry data. A standardized way to collect, process, and export this data is required.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Use the Red Hat build of OpenTelemetry Operator*
+|Deploy the OpenTelemetry Operator and `OpenTelemetryCollector` custom resources. Applications are configured to send their telemetry to the collector, which then processes and exports the data to various backends (e.g., Jaeger for traces, Prometheus for metrics, Loki for logs).
+|This is the modern, vendor-neutral, and recommended approach. OpenTelemetry provides a single, standardized way to handle all three pillars of observability. The collector is highly configurable and can route data to multiple destinations.
+|Requires deploying and managing the OpenTelemetry Operator and collectors. Developers still need to instrument their code using the OpenTelemetry SDKs, which is a non-trivial effort.
+
+|*Use Vendor-Specific Agents*
+|Deploy proprietary agents from a specific observability vendor (e.g., a Datadog agent, a Dynatrace OneAgent). These agents collect telemetry and send it directly to the vendor's platform.
+|Can offer a tightly integrated, seamless experience if the customer is already committed to a single observability vendor. These agents are often highly automated.
+|Creates a strong vendor lock-in. Migrating to a different observability platform in the future would require re-instrumenting applications and deploying a new set of agents.
+|===
+
+= Workshop 8: CI/CD
+
+'''
+
+[#cicd-0]
+== CICD-0: CI vs. CD Tooling Strategy
+
+*Architectural Question*::
+Which tool will be the primary engine for Continuous Integration (CI) versus Continuous Delivery (CD)?
+
+*Assumptions*::
+The customer understands the difference between CI (building and testing code) and CD (deploying applications). They want to use modern, cloud-native tools that integrate well with OpenShift.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*OpenShift Pipelines for CI, OpenShift GitOps for CD (Recommended)*
+|This approach aligns each tool with its primary strength. Pipelines (Tekton) is a powerful, event-driven CI engine for building, testing, and securing container images. GitOps (Argo CD) excels at declaratively and continuously deploying applications to the cluster.
+|Creates a clear separation of concerns, which is a DevOps best practice. It leverages the best-in-class, Kubernetes-native tool for each part of the software delivery lifecycle. The CI pipeline's final step is simply to update a Git repository, which the CD tool then picks up.
+|Requires teams to be comfortable with two different tools and concepts. The "handoff" between the CI pipeline and the GitOps repository must be clearly defined and automated.
+
+|*OpenShift Pipelines for both CI and CD*
+|OpenShift Pipelines can be used to execute `oc` or `kubectl` commands to directly deploy applications to the cluster at the end of a pipeline run.
+|Consolidates all CI/CD logic into a single tool. This can be simpler for teams who are already familiar with Pipelines and prefer a traditional, push-based deployment model.
+|This is a less declarative, imperative approach to deployment. There is no continuous reconciliation; the cluster state can drift from the desired state in Git. It is harder to audit who deployed what and when, as the "source of truth" is the pipeline log, not a Git commit.
+
+|*External CI Tool, OpenShift GitOps for CD*
+|Use an existing, third-party CI tool (e.g., Jenkins, GitLab CI, GitHub Actions) to perform the build and test stages. The CI tool's only responsibility in terms of deployment is to update the application manifests in a Git repository.
+|Allows the customer to leverage their existing investment and skills in a familiar CI tool. It separates the CI process, which may run outside the cluster, from the CD process, which runs securely inside the cluster.
+|Requires integration between the external CI tool and the Git repository. The external tool will need credentials (e.g., a Git deploy key) to push changes to the repository that Argo CD is monitoring.
+|===
+
+'''
+
+[#pipeline-0]
+== PIPELINE-0: Scope of OpenShift Pipelines
+
+*Architectural Question*::
+What is the strategic scope and intended use case for OpenShift Pipelines within the organization?
+
+*Assumptions*::
+The customer wants to adopt a modern, container-native CI solution.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Official CI/CD Platform for All Workloads*
+|Mandate OpenShift Pipelines as the standard, strategic CI/CD platform for all new cloud-native applications developed on OpenShift.
+|Drives standardization and creates a consistent developer experience across the organization. It allows the platform team to build a centralized catalog of reusable, secure `ClusterTasks`.
+|May face resistance from teams who are heavily invested in or proficient with other CI/CD tools. Requires a platform-wide investment in training and developing reusable assets for Pipelines.
+
+|*Container-Native CI/CD Option*
+|Offer OpenShift Pipelines as a fully supported option for development teams, but do not mandate its use. Teams are free to use other tools (like Jenkins or GitLab CI) if they prefer.
+|Provides flexibility and empowers development teams to choose the best tool for their specific needs. It can accelerate adoption by allowing teams to onboard at their own pace.
+|Can lead to tool sprawl, where the platform team needs to support and integrate with multiple different CI/CD systems. It becomes harder to enforce consistent security and quality gates across all pipelines.
+
+|*Specific Use Cases Only (e.g., Image Builds)*
+|Restrict the use of OpenShift Pipelines to a narrow set of tasks that it excels at, such as container image builds and security scanning, while allowing other tools to handle the broader orchestration.
+|Allows the organization to leverage the key benefits of Pipelines (e.g., serverless, container-native execution) for the most critical part of the CI process, without requiring a full migration from existing tools.
+|Creates a more complex, hybrid CI/CD toolchain that requires integration between multiple systems.
+|===
+
+'''
+
+[#pipeline-1]
+== PIPELINE-1: Task Management Strategy
+
+*Architectural Question*::
+What is the strategy for managing and reusing Tekton Tasks and ClusterTasks?
+
+*Assumptions*::
+The customer wants to avoid duplication of effort and ensure that CI pipelines are built from standardized, secure, and reusable components.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Centralized Management (`ClusterTask`)*
+|A central platform or DevOps team is responsible for creating, vetting, and managing a catalog of `ClusterTasks` that are available to all projects in the cluster. Developers consume these read-only tasks in their pipelines.
+|This is a highly recommended governance model. It ensures that all pipelines are built from approved, secure, and consistently maintained components. It prevents individual teams from "reinventing the wheel."
+|Can create a bottleneck if the central team cannot keep up with the demand for new or updated tasks. The process for requesting and approving new `ClusterTasks` must be well-defined.
+
+|*Decentralized Management (`Task`)*
+|Each development team is responsible for creating and managing their own `Tasks` within their own namespace. There is no central catalog.
+|Provides maximum autonomy and agility for development teams. They can create and modify tasks as needed without waiting for a central team.
+|Leads to a massive duplication of effort and inconsistent pipeline logic across the organization. It is very difficult to enforce security standards, as each team may be using a different version of a task or a task from an untrusted source.
+
+|*Hybrid Model*
+|A central team provides a catalog of standard `ClusterTasks` for common activities (e.g., building, scanning, deploying). Teams can consume these, but they are also allowed to create their own project-specific `Tasks` for unique requirements.
+|Provides a good balance between centralized governance and team autonomy. It ensures a secure baseline for common CI/CD stages while still allowing for flexibility.
+|Requires clear guidelines on when a team should use a `ClusterTask` versus creating their own `Task`. There is still a risk of teams creating insecure or inefficient custom tasks.
+|===
+
+'''
+
+[#gitops-0]
+== GITOPS-0: Argo CD Tenancy Model
+
+*Architectural Question*::
+What is the overall strategy for deploying Argo CD instances and providing tenancy for platform and application teams?
+
+*Assumptions*::
+OpenShift GitOps (Argo CD) will be used as the standard CD tool. A model is needed to serve multiple teams and projects.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Single, Cluster-wide Argo CD*
+|A single instance of Argo CD is deployed in a central namespace (e.g., `openshift-gitops`) and is configured to manage applications across the entire cluster. Argo CD's `AppProject` CRD is used to provide logical isolation and RBAC for different teams.
+|Simplifies the management of the GitOps tool itself. It provides a single pane of glass for all deployments across the cluster. This is the most common and generally recommended model.
+|Requires careful configuration of `AppProject` resources to ensure that teams can only deploy to their own namespaces and from their own approved Git repositories. A misconfiguration could have cluster-wide impact.
+
+|*Argo CD per Team/Business Unit*
+|Deploy a separate, independent instance of Argo CD for each major team or business unit. Each instance is responsible for managing only that team's applications.
+|Provides the strongest isolation between tenants. The configuration (and potential failure) of one team's Argo CD instance has no impact on any other team.
+|Significantly increases the resource footprint and management overhead, as there are now multiple Argo CD instances to monitor, upgrade, and secure. It eliminates the "single pane of glass" view.
+|===
+
+'''
+
+[#gitops-1]
+== GITOPS-1: Git Repository Structure
+
+*Architectural Question*::
+How will cluster-level and application configurations be structured in Git?
+
+*Assumptions*::
+A Git repository will be the single source of truth for the desired state of the cluster and its applications.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Monorepo for All Configurations*
+|A single Git repository is used to store all Kubernetes manifests for all applications and all environments. Directories are used to provide structure (e.g., `/apps`, `/cluster-config`, `/dev`, `/prod`).
+|Simplifies management as there is only one repository to secure and provide access to. It is easy to manage dependencies and make coordinated changes across multiple applications or environments in a single commit.
+|The repository can become very large and complex. Access control can be challenging, as Git permissions are typically at the repository level, not the directory level. A single large repo can also slow down CI/CD tooling.
+
+|*Repo per Application/Team*
+|Each application or team has its own dedicated Git repository containing its Kubernetes manifests.
+|Provides clear ownership and autonomy. Access control is simple, as permissions can be managed on a per-repository basis. This model scales well for large organizations.
+|Making a coordinated change across multiple applications requires commits to multiple repositories, which can be complex to manage. Discoverability can be an issue if there is no central catalog of repositories.
+
+|*Hybrid: Infrastructure Repo + Application Repos*
+|One repository is used to manage shared, cluster-level configurations (e.g., operators, RBAC, network policies). Each application then has its own separate repository for its specific deployment manifests.
+|This is a very popular and effective model. It provides a good balance of centralized control for platform configuration and decentralized autonomy for application configuration.
+|Requires a clear definition of what constitutes "cluster-level" vs. "application-level" configuration. The Argo CD `App of Apps` pattern is often used to orchestrate deployments from these different repositories.
+|===
+
+'''
+
+[#gitops-2]
+== GITOPS-2: Secrets Management in GitOps
+
+*Architectural Question*::
+What is the strategy for managing secrets in a GitOps workflow?
+
+*Assumptions*::
+Kubernetes manifests are stored in Git, but secrets (passwords, API keys, certificates) cannot be stored in plaintext in a Git repository.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Sealed Secrets*
+|The Sealed Secrets controller is deployed to the cluster. Developers encrypt their secrets using a public key from the controller and commit the resulting `SealedSecret` manifest to Git. Only the controller running in the cluster has the private key to decrypt it and create a standard Kubernetes `Secret`.
+|This is a popular, purely GitOps-native approach. The encrypted secrets are safe to store in a public or private Git repository. The entire workflow remains within the Kubernetes/Git ecosystem.
+|The secrets are encrypted for a specific cluster, making them non-portable. If the controller's private key is lost and not backed up, all secrets become undecryptable.
+
+|*External Secrets Operator (ESO)*
+|The External Secrets Operator is deployed to the cluster. Developers create an `ExternalSecret` manifest in Git that *references* a secret stored in an external vault (e.g., HashiCorp Vault, AWS Secrets Manager, Azure Key Vault). The operator fetches the secret from the vault and creates a standard Kubernetes `Secret`.
+|This is the recommended approach for enterprises that already have a central secret management solution. It keeps the "source of truth" for secrets in the secure, auditable vault. The Git repository only ever contains pointers to the secrets, not the secrets themselves.
+|Introduces a dependency on an external secret management system. The operator needs to be configured with credentials to securely access the vault.
+
+|*Argo CD Vault Plugin (AVP)*
+|This is a plugin that allows Argo CD to dynamically fetch secrets from a vault at deploy time and inject them into the manifests before they are applied to the cluster.
+|Secrets are never stored as `Secret` objects in etcd, they are injected directly into the application pods as environment variables or files. This can be considered more secure by some.
+|This is a more complex setup. The manifests in Git must be modified with special placeholders that the plugin knows how to replace. It can be harder to troubleshoot, as the final applied manifest is not visible in Git.
+|===
+
+= Workshop 9: Applications
+
+'''
+
+[#build-0]
+== BUILD-0: Image Build Strategy
+
+*Architectural Question*::
+What is the primary strategy for building container images (e.g., Dockerfile, Source-to-Image (S2I))?
+
+*Assumptions*::
+Application source code needs to be transformed into a runnable, OCI-compliant container image. The goal is to create a standardized, secure, and repeatable build process.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Dockerfile builds*
+|Developers provide a `Dockerfile` in their source code repository. The build process, managed by OpenShift `BuildConfigs`, follows the instructions in the Dockerfile to assemble the image.
+|This is the most common and universally understood method for building container images. It gives developers maximum flexibility and direct control over the contents and construction of their application image.
+|Requires developers to be knowledgeable about Dockerfile best practices, such as multi-stage builds, layer optimization, and security hardening. An poorly written Dockerfile can result in slow, insecure, and bloated images.
+
+|*Source-to-Image (S2I) builds*
+|S2I is a toolkit that builds reproducible container images from source code without a Dockerfile. Developers simply provide their source code, and S2I injects it into a pre-built builder image that provides the necessary language runtime and dependencies.
+|Greatly simplifies the build process for developers, as they do not need to write or manage Dockerfiles. It allows the platform team to enforce standards and security by providing vetted, patched builder images.
+|S2I is more "opinionated" than Dockerfile builds. It works best for standard language runtimes (e.g., Java, Python, Node.js). For complex applications with unique build requirements, finding or creating a suitable builder image can be challenging.
+
+|*Cloud Native Buildpacks*
+|An evolution of the concepts in S2I, Buildpacks auto-detect the language and framework of the source code and use a series of modular "buildpacks" to assemble a runnable image.
+|Provides a highly automated, "source-to-image" experience with a strong emphasis on security and patchability (e.g., rebasing application layers on top of updated OS layers without a full rebuild).
+|This is a newer technology in the OpenShift ecosystem. It is very powerful but may be less familiar to development teams than traditional Dockerfiles. The build process is less transparent than a step-by-step Dockerfile.
+|===
+
+'''
+
+[#build-1]
+== BUILD-1: Image Registry Strategy
+
+*Architectural Question*::
+Where will the container images be stored and how will the internal OpenShift Registry be used?
+
+*Assumptions*::
+Container images built by the CI process or imported from external sources need to be stored in a secure and highly-available registry that the cluster can access.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Use the Internal OpenShift Registry Exclusively*
+|The integrated OpenShift Container Registry is used to store all images for applications deployed in the cluster. CI pipelines are configured to push their built images directly to this internal registry.
+|This is the simplest and most tightly integrated solution. The registry is secured by OpenShift RBAC out-of-the-box, and image pull/push operations are seamless. The registry can be configured with persistent storage for high availability.
+|The internal registry is primarily designed to serve the needs of its own cluster. Sharing images with other clusters or external systems requires exposing the registry externally and managing separate credentials, which can be complex.
+
+|*Use an External Enterprise Registry (e.g., Quay, Artifactory, Harbor)*
+|A central, enterprise-grade container registry is used as the single source of truth for all container images. The internal OpenShift registry is not used, or is used only as a temporary cache.
+|Centralizes image management, security scanning, and governance across the entire organization, not just a single OpenShift cluster. These registries often have advanced features like vulnerability scanning, image signing, and geo-replication.
+|Introduces another component to manage and secure. The OpenShift cluster needs to be configured with credentials (a global pull secret) to pull images from the external registry. Network performance between the cluster and the registry is a key consideration.
+
+|*Hybrid Model*
+|An external registry is the primary source of truth. The CI process pushes images to the external registry. ImageStreams within OpenShift are configured to "tag from" the external registry, effectively mirroring the required images into the internal registry.
+|Provides a good balance. It leverages the advanced features of an external registry for security and governance, while using the internal registry as a highly-performant local cache for the cluster. This can improve pod startup times and reduce reliance on the external network.
+|This is the most complex configuration. It requires managing the external registry, the internal registry, and the ImageStream configurations that link them. Automation is key to keeping the mirrors in sync.
+|===
+
+'''
+
+[#build-4]
+== BUILD-4: Application Deployment Strategy
+
+*Architectural Question*::
+What is the strategy for deploying applications (e.g., Deployment, DeploymentConfig)?
+
+*Assumptions*::
+Applications need to be deployed onto the platform in a declarative, scalable, and resilient way.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Use Kubernetes `Deployments` (Recommended)*
+|Use the standard, upstream Kubernetes `Deployment` object. This is the most common, well-documented, and actively developed method for managing stateless applications in Kubernetes.
+|Aligns the platform with the broader Kubernetes ecosystem, making it easier to use community-developed tools and documentation. It is the strategic, forward-looking choice for most applications.
+|`Deployments` do not have some of the OpenShift-specific legacy features of `DeploymentConfigs`, such as automatic triggers on image stream changes or lifecycle hooks. These features can be replicated using other tools (e.g., Argo CD for image updates, container lifecycle hooks).
+
+|*Use OpenShift `DeploymentConfigs` (Legacy)*
+|Use the legacy, OpenShift-specific `DeploymentConfig` (DC) object. DCs have built-in triggers that can automatically start a new rollout when an `ImageStreamTag` is updated.
+|Provides a tightly integrated, convenient developer experience for teams using OpenShift's built-in build and image management features. The automatic triggers are simple to configure.
+|`DeploymentConfigs` are a legacy technology. While still supported, they are not receiving the same level of feature development as standard Kubernetes `Deployments`. Over-reliance on DCs can make applications less portable to other Kubernetes distributions.
+
+|*Use Advanced Deployment Operators (e.g., Argo Rollouts)*
+|For applications requiring advanced deployment strategies like Canary or Blue/Green, use a specialized Operator like Argo Rollouts, which works by manipulating standard Kubernetes `Deployments` or `ReplicaSets`.
+|Enables sophisticated, progressive delivery techniques that are not possible with standard `Deployments` or `DeploymentConfigs`. This allows for safer releases by gradually shifting traffic to the new version and automatically rolling back on failure.
+|Adds another component to install and manage. It introduces a new set of CRDs (`Rollout`, `AnalysisTemplate`) that developers need to learn. The deployment logic becomes more complex to configure.
+|===
+
+'''
+
+[#build-5]
+== BUILD-5: Application Health Monitoring
+
+*Architectural Question*::
+How will application health be monitored?
+
+*Assumptions*::
+The platform needs a reliable way to determine if an application is running, if it is ready to receive traffic, and if it needs to be restarted or replaced.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*No Probes (Not Recommended)*
+|Do not configure any health probes. Kubernetes will only know that a container has failed if its main process exits with a non-zero status code.
+|Simplest configuration, as it requires no action from the developer.
+|This is extremely risky. An application can be completely hung, deadlocked, or unable to serve traffic, but as long as its process is running, Kubernetes will consider it "healthy" and continue to send it user traffic.
+
+|*Liveness Probes Only*
+|Configure a `livenessProbe`. If this probe fails, Kubernetes will kill the container and restart it according to its restart policy.
+|Ensures that applications that have become unresponsive are automatically restarted, which can help with recovering from deadlocks or memory leaks.
+|A poorly configured liveness probe (e.g., one that is too aggressive or has external dependencies) can lead to endless restart loops, making the application unavailable. It does not solve the problem of sending traffic to a container that is still starting up.
+
+|*Liveness and Readiness Probes (Recommended)*
+|Configure both a `livenessProbe` and a `readinessProbe`. The `livenessProbe` restarts a broken container. The `readinessProbe` determines if a container is ready to receive traffic. If the readiness probe fails, the pod is removed from the service's endpoint list until it becomes ready again.
+|This is the standard and most robust approach. It provides a complete health picture, ensuring that broken containers are restarted *and* that traffic is never sent to containers that are not yet ready to serve it (e.g., during startup, or if it's temporarily overloaded).
+|Requires developers to implement two distinct health check endpoints in their applications. The logic for "ready" might be different from the logic for "alive," and this needs to be carefully designed.
+
+|*Liveness, Readiness, and Startup Probes*
+|In addition to the other two probes, configure a `startupProbe`. This probe is used for slow-starting containers. All other probes are disabled until the startup probe succeeds, preventing the liveness probe from killing a container that is just taking a long time to initialize.
+|This is essential for applications that have a long and variable startup time (e.g., large Java applications, applications that need to populate a large cache). It provides a reliable way to handle slow starters without having to dangerously extend the liveness probe's initial delay.
+|Adds another piece of configuration that developers need to understand and implement. It is only necessary for a specific class of slow-starting applications.
+|===
+
+= Workshop 10: OpenShift Data Foundation
+
+'''
+
+[#odf-0]
+== ODF-0: ODF Deployment Mode
+
+*Architectural Question*::
+What is the primary deployment mode for OpenShift Data Foundation (Internal, External, or HCI)?
+
+*Assumptions*::
+The customer requires a robust, integrated storage solution for their OpenShift cluster and understands that ODF can be deployed in multiple ways.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Internal Mode*
+|Deploys ODF directly onto the OpenShift cluster, using local storage devices attached to the worker nodes. This creates a hyper-converged infrastructure (HCI) where compute and storage run on the same nodes.
+|This is the most common, cloud-native, and tightly integrated deployment method. It simplifies management by keeping all components within a single cluster and is managed entirely via the OpenShift console and APIs.
+|Consumes significant resources (CPU, Memory, Disk) from the worker nodes. The lifecycle of the storage cluster is tied to the lifecycle of the OpenShift cluster. Requires careful node selection to meet ODF's resource requirements.
+
+|*External Mode*
+|Connects the OpenShift cluster to a standalone, externally deployed Red Hat Ceph Storage cluster. ODF in this mode acts as a "connector," installing only the necessary CSI drivers and controllers.
+|Allows multiple OpenShift clusters to share a single, large Ceph storage cluster. Decouples the storage lifecycle from the OpenShift cluster lifecycle, allowing independent upgrades. Leverages an existing investment in Red Hat Ceph Storage.
+|Requires the customer to deploy and manage a separate Red Hat Ceph Storage cluster, which has its own operational overhead. Network performance between the OCP cluster and the external Ceph cluster is critical.
+
+|*Hyper-Converged with OpenShift Virtualization (HCI)*
+|Deploys OpenShift, OpenShift Virtualization, and OpenShift Data Foundation on the same set of nodes. This creates a complete HCI platform for running both containers and virtual machines with shared, integrated storage.
+|Provides a unified platform for modernizing legacy VM-based applications alongside new containerized ones. Simplifies infrastructure by consolidating VM and container storage onto a single solution.
+|This is the most resource-intensive configuration. It requires a very high level of planning for node sizing, networking, and capacity management to ensure both VMs and containers have sufficient resources.
+|===
+
+'''
+
+[#odf-2]
+== ODF-2: ODF Deployment Platform
+
+*Architectural Question*::
+On which platform will ODF be deployed (e.g., Bare Metal, VMware, Public Cloud)?
+
+*Assumptions*::
+ODF is being deployed in Internal mode. The choice of underlying platform has significant performance and configuration implications.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Bare Metal*
+|Deploys ODF on physical servers with direct-attached storage (NVMe/SSD). This provides the highest possible I/O performance and lowest latency by eliminating any virtualization overhead.
+|This is the recommended platform for performance-critical workloads like databases or analytics. It allows ODF to have dedicated, uncontended access to the physical storage devices.
+|The customer is responsible for the physical hardware management. Requires careful selection of servers, disks, and network cards to meet ODF performance recommendations.
+
+|*VMware vSphere*
+|Deploys ODF on worker nodes that are virtual machines running on vSphere. Storage devices are presented to the VMs as VMDKs or via Raw Device Mapping (RDM).
+|Leverages existing investment and operational expertise in VMware. Allows for flexible resource management using vSphere features.
+|Performance is dependent on the configuration of the underlying vSphere infrastructure (ESXi hosts, datastores, networking). Misconfiguration can lead to storage bottlenecks. Using RDMs is often recommended for better performance than VMDKs.
+
+|*Public Cloud (e.g., AWS, Azure, GCP)*
+|Deploys ODF on cloud provider instances. ODF uses the provider's local or network-attached block storage (e.g., EBS gp3/io2, Premium SSDs) as its underlying storage devices.
+|Provides a consistent, software-defined storage experience across different clouds and on-premise. It enables hybrid cloud use cases like application and data mobility.
+|Performance and cost are directly tied to the type and size of the underlying cloud storage volumes selected. The customer is responsible for both the ODF subscription cost and the cloud provider's storage costs.
+|===
+
+'''
+
+[#odf-4]
+== ODF-4: Node Roles for ODF
+
+*Architectural Question*::
+Will ODF nodes be dedicated (`infra` nodes) or will they run on standard worker nodes?
+
+*Assumptions*::
+ODF services (based on Ceph) consume significant CPU and memory. A decision is needed on whether to isolate them from general application workloads.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Run on Standard Worker Nodes (Default)*
+|ODF components are deployed on standard worker nodes alongside application pods. This is the standard hyper-converged model.
+|Maximizes resource utilization and simplifies cluster topology by not requiring a separate set of dedicated nodes. It is cost-effective for small to medium-sized clusters.
+|ODF services will compete for CPU and memory with application workloads. This can lead to "noisy neighbor" problems, where a resource-intensive application impacts storage performance, or vice-versa.
+
+|*Run on Dedicated `infra` Nodes*
+|A set of nodes are specifically labeled and tainted as `infra` nodes. The ODF deployment is configured to run exclusively on these nodes, separating them from the general worker nodes where applications run.
+|This is the recommended approach for large or performance-sensitive production clusters. It provides complete resource isolation between the storage layer (ODF) and the application layer, leading to more predictable performance for both.
+|Requires a minimum of 3 additional nodes dedicated to ODF, which increases the cluster's hardware cost and footprint. The OpenShift subscription cost for the `infra` nodes is different from worker nodes.
+|===
+
+'''
+
+[#odf-6]
+== ODF-6: Storage Encryption
+
+*Architectural Question*::
+Will encryption be enabled for the ODF storage cluster (cluster-wide or storage class-specific)?
+
+*Assumptions*::
+The customer has data security or compliance requirements that mandate data-at-rest encryption.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Encryption Disabled*
+|Data is written to the physical storage devices in plaintext.
+|Provides the highest possible performance, as there is no CPU overhead from encryption and decryption operations.
+|This is not acceptable for any environment that stores sensitive or regulated data. It poses a significant security risk if a physical disk is stolen or improperly decommissioned.
+
+|*Cluster-wide Encryption (Recommended for Security)*
+|Enable encryption at the cluster level during ODF installation. All data written to any ODF-backed volume, regardless of storage class, is encrypted at rest using LUKS v2.
+|Ensures that all data stored on the platform is encrypted by default, providing a strong, baseline security posture. This is a "set it and forget it" approach to data-at-rest encryption.
+|This setting *must* be enabled during the initial ODF deployment and cannot be changed later. There is a minor CPU performance overhead for all I/O operations.
+
+|*Storage Class-specific Encryption*
+|Leave cluster-wide encryption disabled, but create a specific `StorageClass` that has encryption enabled. Only volumes created from this specific class will be encrypted.
+|Provides flexibility, allowing teams to selectively encrypt only the volumes that contain sensitive data, while leaving others unencrypted for maximum performance.
+|Puts the responsibility on the application teams to choose the correct, encrypted storage class. There is a risk that sensitive data could be stored in an unencrypted volume by mistake.
+|===
+
+'''
+
+[#odf-9]
+== ODF-9: Disaster Recovery (DR) Strategy
+
+*Architectural Question*::
+What is the Disaster Recovery (DR) strategy for applications using ODF (Metro-DR or Regional-DR)?
+
+*Assumptions*::
+The customer requires business continuity for stateful applications and needs to protect them against a site-wide disaster.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*No DR Strategy*
+|Rely on backups for recovery. There is no automated failover or data replication between sites.
+|Simplest to implement as it requires no additional infrastructure for DR.
+|The Recovery Time Objective (RTO) and Recovery Point Objective (RPO) will be very high, measured in hours or days, depending on the backup and restore process. This is not a true DR solution.
+
+|*Metro-DR (Synchronous Replication)*
+|Use ODF's Metro-DR capabilities. Two OpenShift clusters are deployed in two separate sites with low network latency (<10ms RTT). ODF synchronously replicates data between the two sites. In case of a disaster, applications can be failed over to the second site with zero data loss (RPO=0).
+|Provides the highest level of data protection available for stateful applications on OpenShift. It is designed for critical applications that cannot tolerate any data loss.
+|Requires two separate data centers with a high-bandwidth, low-latency network link between them. This is the most complex and expensive DR solution to implement.
+
+|*Regional-DR (Asynchronous Replication)*
+|Use ODF's Regional-DR capabilities. Data is replicated asynchronously between two clusters that can be geographically distant (latency >10ms RTT). In case of a disaster, applications can be failed over, but there may be some data loss, equivalent to the replication lag.
+|Provides a robust DR solution that works over standard wide-area networks (WAN) and does not require specialized metro-area networking. It is more flexible and generally less expensive than Metro-DR.
+|The Recovery Point Objective (RPO) is non-zero. The amount of potential data loss depends on the replication schedule (e.g., every 15 minutes). This must be acceptable for the applications being protected.
+|===
+
+= Workshop 11: Red Hat OpenShift AI Self-Managed
+
+'''
+
+[#rhoai-sm-0]
+== RHOAI-SM-0: Primary Use Cases
+
+*Architectural Question*::
+What are the primary use cases for OpenShift AI (e.g., model development, model serving, data engineering, GenAI)?
+
+*Assumptions*::
+The customer has identified specific business goals for implementing an AI/ML platform.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Interactive Model Development*
+|The primary goal is to provide data scientists with a managed, scalable Jupyter notebook environment for data exploration, experimentation, and model building.
+|Focuses on the core data science experience. Jupyter workbenches provide a flexible and familiar tool for individual researchers and developers.
+|The initial deployment can focus on Jupyter, user management, and storage components. Advanced features like model serving and pipelines might be deferred.
+
+|*Production Model Serving*
+|The main objective is to deploy, manage, and serve machine learning models at scale, providing stable, low-latency inference endpoints for other applications.
+|Focuses on the operational (MLOps) aspect of the ML lifecycle. This requires a robust serving platform like KServe or ModelMesh.
+|Requires careful planning for model formats, resource allocation (CPU/GPU), and network exposure. The model development environment might be secondary or even external.
+
+|*End-to-End MLOps Platform*
+|The goal is to implement a complete, end-to-end platform that covers the entire lifecycle: data preparation, model training, validation, deployment, monitoring, and retraining.
+|This is the most strategic approach. It aims to create a repeatable, automated "model factory" that accelerates the delivery of AI-powered applications.
+|This is the most complex deployment, requiring the installation and integration of nearly all OpenShift AI components, including Jupyter, model serving, and pipelining tools like Elyra or Kubeflow Pipelines.
+|===
+
+'''
+
+[#rhoai-sm-2]
+== RHOAI-SM-2: Component Installation
+
+*Architectural Question*::
+Which components of OpenShift AI will be installed (e.g., Jupyter, ModelMesh, KServe, Elyra, CodeFlare)?
+
+*Assumptions*::
+The customer understands that OpenShift AI is a modular platform and not all components are required for all use cases.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Core Components Only (Jupyter)*
+|Install only the core OpenShift AI Operator and the Jupyter (Notebooks) component.
+|Provides a minimal, functional data science environment for model development. This is the simplest starting point.
+|Users will not be able to deploy models for serving, run distributed training jobs, or build complex pipelines using the integrated tools.
+
+|*Core + Model Serving (KServe/ModelMesh)*
+|Install the core components plus one of the model serving platforms. KServe is for single-model servers, while ModelMesh is optimized for high-density, multi-model serving.
+|Enables a complete "build and deploy" workflow. Data scientists can develop models in their workbenches and then deploy them as scalable inference endpoints.
+|Requires a decision between KServe and ModelMesh based on the expected model density and serving patterns. Additional resources are needed to run the model server fleet.
+
+|*Full MLOps Stack*
+|Install all desired components, such as Jupyter for development, KServe/ModelMesh for serving, CodeFlare for distributed training, and Elyra for pipeline orchestration.
+|Provides a comprehensive, feature-rich platform that supports the entire MLOps lifecycle from experimentation to production.
+|This is the most resource-intensive and complex configuration to manage. Each component has its own configuration and resource requirements that need to be planned for.
+|===
+
+'''
+
+[#rhoai-sm-3]
+== RHOAI-SM-3: User Management
+
+*Architectural Question*::
+What is the strategy for managing user authentication and authorization for data scientists?
+
+*Assumptions*::
+The OpenShift cluster is already integrated with a corporate identity provider (IdP). A strategy is needed for granting access specifically to the OpenShift AI platform.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*Manual User Management*
+|A cluster administrator manually grants the appropriate OpenShift AI roles (`rhods-users`, `rhods-admins`) to individual users.
+|Simple for a small, static team of data scientists. Provides direct, explicit control.
+|Does not scale. Becomes a manual bottleneck for the administrator and is prone to error. Access is not automatically revoked when a user leaves the team or company.
+
+|*Group-based User Management (Recommended)*
+|Create dedicated groups in the corporate IdP (e.g., `ai-users`, `ai-admins`). These groups are synchronized with OpenShift, and the OpenShift AI roles are assigned to these groups.
+|This is the standard enterprise approach. User access is managed centrally in the IdP. Onboarding a new data scientist is as simple as adding them to the correct group. Access is automatically revoked upon removal.
+|Requires coordination with the identity management team to create and manage the necessary groups in the corporate directory.
+
+|*Custom User Admission Webhook*
+|Develop a custom webhook to programmatically manage user access based on external logic or an API call.
+|Provides the ultimate flexibility for complex, automated onboarding workflows.
+|This is a highly complex solution that requires custom development, deployment, and maintenance of the webhook component. Only suitable for very specific, advanced integration scenarios.
+|===
+
+'''
+
+[#rhoai-sm-5]
+== RHOAI-SM-5: GPU Acceleration
+
+*Architectural Question*::
+Will NVIDIA GPUs be required for accelerated workloads? If so, how will the GPU Operator be configured?
+
+*Assumptions*::
+The customer's AI/ML workloads (e.g., deep learning model training, large model inference) will benefit significantly from or require GPU acceleration.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*CPU-Only Environment*
+|Do not install any GPU hardware or the GPU Operator. All workloads will run on CPUs.
+|Simplifies the cluster configuration and reduces hardware costs. Suitable for traditional machine learning (e.g., Scikit-learn, XGBoost) and small-scale experimentation.
+|It is not possible to run modern deep learning or large language model (LLM) workloads efficiently. Training times will be prohibitively long.
+
+|*GPU-enabled via NVIDIA GPU Operator*
+|Install supported NVIDIA GPUs in a subset of worker nodes and deploy the NVIDIA GPU Operator. The operator manages the drivers, container toolkit, and device plugins required to expose GPUs to pods.
+|This is the standard and supported way to enable GPU acceleration on OpenShift. It automates the complex task of managing the NVIDIA software stack on the cluster nodes.
+|Requires investment in expensive GPU hardware. The GPU Operator is another component to manage and upgrade. Node selection is critical, as only certain nodes will have GPUs.
+
+|*Multi-Instance GPU (MIG) Configuration*
+|For supported GPUs (e.g., A100), configure the GPU Operator to use the Multi-Instance GPU (MIG) feature. This partitions a single physical GPU into multiple smaller, fully isolated GPU instances.
+|Maximizes GPU utilization. It allows multiple data scientists or models to share a single physical GPU securely, which is highly cost-effective for development, experimentation, and inference workloads that do not require a full GPU.
+|MIG is only supported on specific, high-end NVIDIA GPUs. The MIG configuration (partitioning strategy) must be planned in advance and is applied at the node level.
+|===
+
+'''
+
+[#rhoai-sm-6]
+== RHOAI-SM-6: Storage Strategy
+
+*Architectural Question*::
+What is the storage strategy for user workbenches, persistent data, and models (e.g., ODF, NFS, Object Storage)?
+
+*Assumptions*::
+Data scientists and ML workloads require persistent storage for notebooks, datasets, and trained models.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*OpenShift Data Foundation (ODF)*
+|Use ODF as the primary storage provider. Use CephFS (RWX) for Jupyter workbench storage and Ceph RBD (RWO) or CephFS for datasets. Use the ODF S3 endpoint (NooBaa) for a model registry.
+|Provides a fully integrated, versatile storage solution managed within OpenShift. It can provide all three storage types (file, block, object) from a single platform.
+|ODF consumes cluster resources (CPU, memory, disk). Its performance is dependent on the underlying nodes and network.
+
+|*External NFS*
+|Use an external NFS server to provide shared, `ReadWriteMany` (RWX) storage for workbenches and shared datasets.
+|Leverages existing NFS infrastructure and is a simple, well-understood way to provide shared file storage.
+|The external NFS server is a single point of failure unless it is configured to be highly available. Performance can be a bottleneck. The customer is responsible for managing the NFS server outside of OpenShift.
+
+|*External Object Storage (S3)*
+|Use an external S3-compatible object store (e.g., AWS S3, MinIO) for storing large datasets and trained models.
+|Object storage is the most scalable and cost-effective solution for large, unstructured data. It is the de-facto standard for storing artifacts in the AI/ML world.
+|Data access from pods requires applications to use an S3-aware SDK. It is not a general-purpose filesystem and cannot be used directly for workbench persistent volumes without an intermediate solution.
+
+|*Hybrid Storage Approach (Recommended)*
+|Use a combination of storage types. Use an RWX provider (like ODF CephFS or NFS) for the Jupyter workbenches. Use a performant RWO provider (like ODF Ceph RBD) for training data caches. Use an S3 object store as the primary location for large datasets and the model registry.
+|This approach uses the best type of storage for each specific job. It provides flexibility, performance, and scalability by aligning the storage characteristics with the workload requirements.
+|This is the most complex configuration. It requires integrating and managing multiple storage backends. Data scientists need to be educated on which storage type to use for which purpose.
+|===
+
+'''
+
+[#rhoai-sm-9]
+== RHOAI-SM-9: Model Serving Platform
+
+*Architectural Question*::
+Which model serving platform will be used (KServe for single-model serving or ModelMesh for multi-model serving)?
+
+*Assumptions*::
+The customer needs to deploy trained models as production-ready inference services. OpenShift AI offers two distinct platforms for this.
+
+.Alternatives
+[cols="1a,2a,2a"]
+|===
+|Alternative |Justification |Implication
+
+|*KServe (formerly KFServing)*
+|A standard model serving platform from the Kubeflow project. It creates a full serverless deployment (using Knative) for each deployed model, with features like autoscaling (including scale-to-zero), canary rollouts, and explainability.
+|Excellent for use cases where you have a small number of large, resource-intensive models. Its scale-to-zero capability is highly cost-effective for models that receive infrequent traffic.
+|KServe has a higher per-model resource overhead due to its "one pod per model" architecture. It is not efficient for serving tens or hundreds of smaller models.
+
+|*ModelMesh*
+|A serving platform developed by IBM and Red Hat, designed for high-density, high-scalability scenarios. It intelligently loads and unloads multiple models into a shared pool of runtime pods, optimizing resource usage.
+|This is the ideal choice for serving a large number of models concurrently. Its intelligent routing and placement dramatically reduces the resource footprint compared to KServe at scale.
+|ModelMesh does not support scale-to-zero in the same way as KServe. Its feature set for advanced rollouts and explainability, while present, may be less mature than KServe's.
+|===

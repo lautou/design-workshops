@@ -1,0 +1,17 @@
+# .env file
+
+# --- Authentication ---
+
+GOOGLE_APPLICATION_CREDENTIALS="service-account.json"
+
+# --- Input Files ---
+
+TEMPLATE_PRESENTATION_ID="1dqbmXcLEMfaKB0bT0pxfvZC27NxjKPlqiCwqGEZhu5o"
+LAYOUT_SHEET_ID="13sIVB9Bcpwdy9l5Jt13QcgKfXJOF2wpEkaNLj69Zwnc"
+
+# --- Source & Output ---
+
+# Path to the DIRECTORY containing your .md files
+
+SOURCE_DIRECTORY="markdown_files"
+OUTPUT_FOLDER_ID="1pZGz3lgvVr3DjsL9cWx6ObFD6UkghEpi"

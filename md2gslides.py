@@ -227,26 +227,44 @@ def parse_global_headers(raw_markdown_content):
     return header_text, footer_text
 
 def parse_slide_content(slide_text):
-    """Parses a slide's text into title, subtitle, and body components."""
+    """
+    Parses a slide's text into title, subtitle, and body components.
+    The first heading of any level (#, ##, ###) is considered the title.
+    """
     title, subtitle, body = "", "", ""
     lines = slide_text.strip().split('\n')
     
-    title_lines, subtitle_lines, body_lines = [], [], []
+    body_lines = []
     
     title_found = False
     
-    for line in lines:
+    for i, line in enumerate(lines):
         stripped_line = line.strip()
-        if not title_found and stripped_line.startswith("# "):
+        if not title_found and stripped_line.startswith('#'):
             title = stripped_line.lstrip('# ').strip()
             title_found = True
-        elif stripped_line.startswith("## "):
-            subtitle_lines.append(stripped_line.lstrip('## ').strip())
-        else:
-            body_lines.append(line)
+            # The rest of the lines become the body
+            body_lines = lines[i+1:]
+            break
+        elif not title_found:
+             # If no heading is found yet, it's part of the body
+             body_lines.append(line)
 
-    subtitle = "\n".join(subtitle_lines)
-    body = "\n".join(body_lines).strip()
+    if not title_found:
+        body = "\n".join(body_lines).strip()
+    else:
+        # Reprocess the collected body to find subtitles
+        subtitle_lines = []
+        final_body_lines = []
+        for body_line in body_lines:
+            stripped_body_line = body_line.strip()
+            if stripped_body_line.startswith('##'):
+                 subtitle_lines.append(stripped_body_line.lstrip('## ').strip())
+            else:
+                 final_body_lines.append(body_line)
+        subtitle = "\n".join(subtitle_lines)
+        body = "\n".join(final_body_lines).strip()
+
     return title, subtitle, body
 
 def parse_markdown_to_slides(processed_content):

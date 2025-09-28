@@ -4,6 +4,7 @@ import logging
 import re
 import uuid
 import glob
+import yaml
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -26,17 +27,16 @@ load_dotenv()
 try:
     SERVICE_ACCOUNT_FILE = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
     TEMPLATE_ID = os.environ['TEMPLATE_PRESENTATION_ID']
-    SHEET_ID = os.environ['LAYOUT_SHEET_ID']
     SOURCE_DIRECTORY = os.environ['SOURCE_DIRECTORY']
     OUTPUT_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID']
 except KeyError as e:
     logging.critical(f"FATAL: Missing required configuration in .env file: {e}")
     sys.exit(1)
 
+# Scopes no longer include spreadsheets
 SCOPES = [
     "https://www.googleapis.com/auth/presentations",
     "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
 ]
 
 
@@ -48,14 +48,13 @@ def authenticate():
         creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
         slides_service = build("slides", "v1", credentials=creds)
         drive_service = build("drive", "v3", credentials=creds)
-        sheets_service = build("sheets", "v4", credentials=creds)
         logging.info("✅ Successfully authenticated using service account.")
-        return slides_service, drive_service, sheets_service
+        return slides_service, drive_service
     except FileNotFoundError:
         logging.critical(f"FATAL: Service account key file not found at '{SERVICE_ACCOUNT_FILE}'")
     except Exception as e:
         logging.critical(f"FATAL: An unexpected error occurred during authentication: {e}")
-    return None, None, None
+    return None, None
 
 def check_drive_folder_permissions(drive_service, folder_id):
     """Verifies that the service account can create files in the target folder."""
@@ -93,30 +92,18 @@ def get_template_layouts(service, template_id):
     except HttpError as err:
         logging.error(f"Could not fetch template presentation with ID '{template_id}': {err}"); return None
 
-def load_layout_mapping_from_sheet(service, spreadsheet_id):
-    """Loads the class-to-layout mapping from the first visible sheet in a Google Sheet."""
+def load_layout_mapping_from_yaml(file_path="layouts.yaml"):
+    """Loads the class-to-layout mapping from a local YAML file."""
     try:
-        spreadsheet_metadata = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-        sheets = spreadsheet_metadata.get('sheets', '')
-        if not sheets:
-            logging.error(f"No sheets found in Google Sheet with ID '{spreadsheet_id}'.")
-            return None
-        
-        first_sheet_name = sheets[0].get('properties', {}).get('title', 'Sheet1')
-        logging.info(f"Found first sheet named '{first_sheet_name}'. Reading data from it.")
-        
-        sheet_range = f"'{first_sheet_name}'!A2:B"
-        
-        result = service.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range=sheet_range).execute()
-        values = result.get('values', [])
-        if not values:
-            logging.warning(f"No data found in sheet '{first_sheet_name}'.")
-            return {}
-        mapping = {row[0].strip(): row[1].strip() for row in values if len(row) >= 2 and row[0].strip()}
-        logging.info(f"Layout mapping loaded successfully.")
-        return mapping
-    except HttpError as err:
-        logging.error(f"Failed to fetch layout mapping from Google Sheet '{spreadsheet_id}': {err}"); return None
+        with open(file_path, 'r') as f:
+            mapping = yaml.safe_load(f)
+            logging.info(f"Layout mapping loaded successfully from '{file_path}'.")
+            return mapping
+    except FileNotFoundError:
+        logging.critical(f"FATAL: Layout mapping file not found at '{file_path}'. Please create it.")
+    except yaml.YAMLError as e:
+        logging.critical(f"FATAL: Error parsing YAML file '{file_path}': {e}")
+    return None
 
 def copy_template_presentation(drive_service, template_id, new_title, folder_id):
     """Copies the template to the specified output folder."""
@@ -168,7 +155,6 @@ def parse_markdown_to_slides(processed_content):
             speaker_notes = notes_match.group(1).strip()
             slide_text = slide_text.replace(notes_match.group(0), "")
         
-        # CORRECTED REGEX: Made the backslash optional with `\\?`
         class_match = re.search(r'_COMMENT_START_\s*_class:\s*([\w\s-]+)\\?_COMMENT_END_', slide_text, re.IGNORECASE)
         if class_match:
             layout_class = class_match.group(1).strip().split()[0]
@@ -187,12 +173,8 @@ def populate_body_with_rich_text(service, presentation_id, body_id, markdown_tex
     md = MarkdownIt()
     tokens = md.parse(markdown_text)
 
-    plain_text_parts = []
-    formatting_styles = []
-    list_requests = []
-    
-    char_cursor = 0
-    style_stack = []
+    plain_text_parts, formatting_styles, list_requests = [], [], []
+    char_cursor, style_stack = 0, []
 
     for token in tokens:
         if token.type == 'paragraph_open':
@@ -207,15 +189,11 @@ def populate_body_with_rich_text(service, presentation_id, body_id, markdown_tex
                 elif child.type in ['strong_close', 'em_close']:
                     if not style_stack: continue
                     style = style_stack.pop()
-                    formatting_styles.append({
-                        'type': style['type'],
-                        'range': (style['start'], char_cursor)
-                    })
+                    formatting_styles.append({'type': style['type'], 'range': (style['start'], char_cursor)})
         elif token.type == 'paragraph_close':
             is_last_token = (token == tokens[-1])
             if not is_last_token and char_cursor > 0 and char_cursor > para_start:
-                plain_text_parts.append('\n')
-                char_cursor += 1
+                plain_text_parts.append('\n'); char_cursor += 1
             
             if token.level > 0:
                 end_index = char_cursor - 1 if not is_last_token else char_cursor
@@ -223,8 +201,7 @@ def populate_body_with_rich_text(service, presentation_id, body_id, markdown_tex
                     "createParagraphBullets": {
                         "objectId": body_id,
                         "textRange": {"type": "FIXED_RANGE", "startIndex": para_start, "endIndex": end_index },
-                        "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE",
-                        "nestingLevel": token.level - 1
+                        "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE", "nestingLevel": token.level - 1
                     }
                 })
 
@@ -238,13 +215,10 @@ def populate_body_with_rich_text(service, presentation_id, body_id, markdown_tex
         style_update = {}
         if style['type'] == 'strong_open': style_update['bold'] = True
         if style['type'] == 'em_open': style_update['italic'] = True
-        
         all_requests.append({
             "updateTextStyle": {
-                "objectId": body_id,
-                "textRange": {"type": "FIXED_RANGE", "startIndex": style['range'][0], "endIndex": style['range'][1]},
-                "style": style_update,
-                "fields": ",".join(style_update.keys())
+                "objectId": body_id, "textRange": {"type": "FIXED_RANGE", "startIndex": style['range'][0], "endIndex": style['range'][1]},
+                "style": style_update, "fields": ",".join(style_update.keys())
             }
         })
     
@@ -257,7 +231,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
     layout_name = class_to_layout_map.get(layout_class, class_to_layout_map.get('default'))
     layout_id = template_layouts_map.get(layout_name)
     if not layout_id:
-        logging.warning(f"Layout '{layout_name}' for class '{layout_class}' not found. Using default.")
+        logging.warning(f"Layout '{layout_name}' for class '{layout_class}' not found in template. Using default API layout.")
 
     slide_content = slide_data['content']
     title, body_text_md = "", ""
@@ -273,9 +247,12 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         body_text_md = slide_content
     
     try:
+        create_slide_request = {"createSlide": {"objectId": str(uuid.uuid4())}}
+        if layout_id:
+            create_slide_request["createSlide"]["slideLayoutReference"] = {"layoutId": layout_id}
+            
         response = service.presentations().batchUpdate(
-            presentationId=presentation_id,
-            body={"requests": [{"createSlide": {"objectId": str(uuid.uuid4()), "slideLayoutReference": {"layoutId": layout_id}}}]}
+            presentationId=presentation_id, body={"requests": [create_slide_request]}
         ).execute()
         slide_info = response['replies'][0]['createSlide']
         
@@ -321,12 +298,12 @@ def main():
     """Main execution flow of the script."""
     logging.info("--- Initializing Script ---")
     
-    slides_service, drive_service, sheets_service = authenticate()
-    if not all([slides_service, drive_service, sheets_service]): sys.exit(1)
+    slides_service, drive_service = authenticate()
+    if not all([slides_service, drive_service]): sys.exit(1)
 
     if not check_drive_folder_permissions(drive_service, OUTPUT_FOLDER_ID): sys.exit(1)
         
-    class_to_layout_map = load_layout_mapping_from_sheet(sheets_service, SHEET_ID)
+    class_to_layout_map = load_layout_mapping_from_yaml()
     if class_to_layout_map is None: sys.exit(1)
 
     template_layouts_map = get_template_layouts(slides_service, TEMPLATE_ID)
@@ -367,7 +344,6 @@ def main():
 
             for i, slide_data in enumerate(slides):
                 logging.info(f"  - Creating slide {i+1}/{len(slides)} (class: {slide_data['class']})...")
-                # CORRECTED LINE: Use 'slides_service' instead of 'service'
                 add_slide_to_presentation(slides_service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, header_text, footer_text)
             
             if initial_slide_id:

@@ -1,2 +1,3 @@
 *.log
+markdown_files/*
 service-account.json

@@ -8,7 +8,7 @@ It's designed for batch processing, allowing you to convert an entire directory 
 
 * **Batch Processing**: Converts an entire directory of .md files into separate Google Slides presentations.  
 * **Template-Based**: Enforces brand consistency by creating all presentations from a master Google Slides template.  
-* **Dynamic Layouts**: Maps a \_class tag in Markdown to a specific slide layout from your template via a Google Sheet.  
+* **Local Layout Mapping**: Maps a \_class tag in Markdown to a specific slide layout from your template via a simple, local layouts.yaml file.  
 * **Rich Text Formatting**: Automatically converts Markdown syntax into formatted text on the slides, including:  
   * **Bold** and *Italic* text.  
   * Bulleted lists.  
@@ -19,134 +19,49 @@ It's designed for batch processing, allowing you to convert an entire directory 
 
 ## **Setup Guide**
 
-Follow these steps to set up the environment and configure the tool.
+Follow these steps to set up the environment and configure the tool. The process involves one-time setup on Google Cloud, followed by a simple local installation.
 
-### **Step 1: Google Cloud Project**
+### **Step 1: Google Cloud & Drive Setup (One-Time)**
 
 1. **Create a Google Cloud Project**: If you don't have one, create a new project in the [Google Cloud Console](https://console.cloud.google.com/).  
-2. **Enable APIs**: For your project, enable the following three APIs:  
+2. **Enable APIs**: For your project, enable the following two APIs:  
    * Google Drive API  
-   * Google Sheets API  
    * Google Slides API  
 3. **Create a Service Account**:  
    * In your project, navigate to **IAM & Admin \> Service Accounts**.  
-   * Click **Create Service Account**.  
-   * Give it a name (e.g., slides-generator) and click **Done**.  
-   * Find your new service account, click the **Actions** menu (⋮), and select **Manage keys**.  
-   * Click **Add Key \> Create new key**, choose **JSON**, and click **Create**.  
-   * A JSON key file will be downloaded. Rename it to service-account.json and place it in your project folder. **Treat this file as a password.**
-
-### **Step 2: Google Drive Setup (Crucial)**
-
-To avoid storage quota errors, all work must be done within a **Shared Drive**.
-
-1. **Create a Shared Drive**: In Google Drive, right-click on "Shared drives" and create a new one (e.g., "Automated Presentations").  
-2. **Add Service Account as Member**:  
-   * Open your service-account.json file and copy the client\_email address.  
-   * Go to your new Shared Drive, click **Manage members** at the top.  
-   * Paste the service account's email address.  
+   * Click **Create Service Account**, give it a name (e.g., slides-generator), and click **Done**.  
+   * Find your new service account, click the **Actions** menu (⋮), select **Manage keys**, and then **Add Key \> Create new key**. Choose **JSON**.  
+   * A JSON key file will be downloaded. This is your service-account.json key.  
+4. **Create a Shared Drive**: In Google Drive, create a new **Shared Drive** (e.g., "Automated Presentations"). This is crucial to avoid storage quota errors.  
+5. **Add Service Account as Member**:  
+   * Open your downloaded service-account.json file and copy the client\_email address.  
+   * Go to your new Shared Drive, click **Manage members**, and paste the service account's email.  
    * Assign it the role of **Content manager** and click **Send**.  
-3. **Prepare Assets**:  
+6. **Prepare Assets in Shared Drive**:  
    * Create a folder inside the Shared Drive to store the final presentations (e.g., "Generated Slides").  
-   * Place your **Google Slides Template** and your **Layout Mapping Google Sheet** anywhere inside this Shared Drive (or ensure they are shared with the service account's email with "Viewer" access).
+   * Place your **Google Slides Template** inside the Shared Drive.
 
-### **Step 3: Local Project Setup**
+### **Step 2: Local Project Setup**
 
-1. **Folder Structure**: Organize your project folder as follows:  
-   your-project/  
-   ├── md2gslides.py  
-   ├── .env  
-   ├── requirements.txt  
-   ├── service-account.json  
-   └── markdown\_source/  
-       └── presentation1.md
+1. **Clone the Repository**:  
+   git clone \<your-repository-url\>  
+   cd \<your-repository-name\>
 
-2. **Create a Virtual Environment**:  
-   python3 \-m venv .venv
+2. **Run the Install Script**: This will create a virtual environment, install all dependencies, and create your configuration files from the examples.  
+   chmod \+x install.sh  
+   ./install.sh
 
-3. **Activate the Environment**:  
-   source .venv/bin/activate
-
-4. **Install Dependencies**: Create a requirements.txt file with the content below, then run the install command.  
-   **requirements.txt**:  
-   google-api-python-client  
-   google-auth-httplib2  
-   google-auth-oauthlib  
-   python-dotenv  
-   markdown-it-py
-
-   **Install Command**:  
-   pip install \-r requirements.txt
-
-### **Step 4: Configuration**
-
-Create a file named .env and populate it with the required IDs and paths.
-
-**.env**:
-
-\# \--- Authentication \---  
-\# Path to your service account's JSON key file  
-GOOGLE\_APPLICATION\_CREDENTIALS="service-account.json"
-
-\# \--- Input Files (from your Shared Drive) \---  
-\# ID of the Google Slides template presentation  
-TEMPLATE\_PRESENTATION\_ID="YOUR\_TEMPLATE\_PRESENTATION\_ID"
-
-\# ID of the Google Sheet with the layout mapping  
-LAYOUT\_SHEET\_ID="YOUR\_LAYOUT\_GOOGLE\_SHEET\_ID"
-
-\# \--- Source & Output \---  
-\# Path to the LOCAL directory containing your .md files  
-SOURCE\_DIRECTORY="markdown\_source"
-
-\# ID of the Google Drive folder (inside the Shared Drive) where slides will be saved  
-OUTPUT\_FOLDER\_ID="YOUR\_OUTPUT\_FOLDER\_ID"
-
-*You can get the ID for any file or folder by opening it in Google Drive and copying the string from the URL.*
+3. **Configure Your Project**:  
+   * **Service Account**: Place your downloaded service-account.json key file into the project's root directory.  
+   * **.env file**: Open the newly created .env file and fill in the TEMPLATE\_PRESENTATION\_ID and OUTPUT\_FOLDER\_ID with the IDs from your assets in the Shared Drive.  
+   * **layouts.yaml**: Open layouts.yaml and adjust the mappings to match the "Display names" of the layouts in your specific Google Slides template.
 
 ## **Usage**
 
-1. **Add Markdown Files**: Place one or more .md files into your source directory (e.g., markdown\_source/).  
-2. **Run the Script**: Execute the script from your terminal.  
-   python3 md2gslides.py
+1. **Add Markdown Files**: Place one or more .md files into your source directory (markdown\_source/).  
+2. **Run the Generator**: Execute the script from your terminal.  
+   \# You can use the helper script  
+   ./generate.sh
 
-3. **Check the Output**: The script will log its progress to the console and to a generation.log file. Upon successful completion, it will print a link to each generated presentation. The files will also appear in your specified output folder in Google Drive.
-
-## **Markdown File Format**
-
-Your Markdown files should follow this structure:
-
-\_COMMENT\_START\_  
-header: 'My Presentation Header'  
-footer: 'My Presentation Footer'  
-\_COMMENT\_END\_
-
-\---
-
-\_COMMENT\_START\_  
-\_class: title  
-\_COMMENT\_END\_
-
-\# Slide 1 Title
-
-\#\# A Subtitle for the Title Slide
-
-\---
-
-\_COMMENT\_START\_  
-\_class: default  
-Speaker notes:  
-This is a note for the presenter. It will not be visible on the slide.  
-\_COMMENT\_END\_
-
-\# Slide 2 Title
-
-This is a regular paragraph.
-
-This text will be \*\*bold\*\* and this will be \*italic\*.
-
-\- This is a list item.  
-\- This is another item.  
-  \- This is a nested item (level 2).  
-    \- And this is even deeper (level 3).  
-\- Back to the first level.  
+   \# Or run the Python script directly (ensure venv is active)  
+   \# python3 md2gslides.py  

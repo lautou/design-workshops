@@ -140,10 +140,11 @@ def get_template_theme_info(service, template_id, target_theme_name):
                         ph_index = ph.get('index', 0)
                         
                         transform = element.get('transform', {})
+                        x_pos = transform.get('translateX', 0)
                         y_pos = transform.get('translateY', 0)
                         height = element.get('size', {}).get('height', {}).get('magnitude', 0)
 
-                        ph_details = {'id': element.get('objectId'), 'index': ph_index, 'type': ph_type, 'y': y_pos, 'height': height}
+                        ph_details = {'id': element.get('objectId'), 'index': ph_index, 'type': ph_type, 'x': x_pos, 'y': y_pos, 'height': height}
                         
                         if ph_type not in layout_details['placeholders']:
                             layout_details['placeholders'][ph_type] = []
@@ -151,6 +152,9 @@ def get_template_theme_info(service, template_id, target_theme_name):
                 
                 if 'SUBTITLE' in layout_details['placeholders']:
                     layout_details['placeholders']['SUBTITLE'].sort(key=lambda p: p['y'])
+                if 'BODY' in layout_details['placeholders']:
+                    layout_details['placeholders']['BODY'].sort(key=lambda p: p['x'])
+
 
                 display_name = layout.get('layoutProperties', {}).get('displayName')
                 if display_name:
@@ -238,32 +242,33 @@ def parse_slide_content(slide_text):
     
     title_found = False
     
+    # Find the first heading of any level to be the title
     for i, line in enumerate(lines):
         stripped_line = line.strip()
         if not title_found and stripped_line.startswith('#'):
             title = stripped_line.lstrip('# ').strip()
             title_found = True
-            # The rest of the lines become the body
-            body_lines = lines[i+1:]
+            body_lines = lines[i+1:] # The rest of the lines become the body
             break
         elif not title_found:
-             # If no heading is found yet, it's part of the body
-             body_lines.append(line)
+             body_lines.append(line) # If no heading found yet, it's part of the body
 
-    if not title_found:
-        body = "\n".join(body_lines).strip()
-    else:
-        # Reprocess the collected body to find subtitles
+    # If a title was found, process the rest for subtitles and body
+    if title_found:
         subtitle_lines = []
         final_body_lines = []
         for body_line in body_lines:
             stripped_body_line = body_line.strip()
-            if stripped_body_line.startswith('##'):
+            # Only consider '##' as a subtitle, not '###' etc.
+            if stripped_body_line.startswith('## '):
                  subtitle_lines.append(stripped_body_line.lstrip('## ').strip())
             else:
                  final_body_lines.append(body_line)
         subtitle = "\n".join(subtitle_lines)
         body = "\n".join(final_body_lines).strip()
+    else:
+        # If no heading was found at all, the whole content is the body
+        body = "\n".join(body_lines).strip()
 
     return title, subtitle, body
 
@@ -384,7 +389,6 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         elif len(all_subtitle_phs) == 1:
             candidate = all_subtitle_phs[0]
             title_ph_list = (layout_placeholders.get('TITLE', []) or layout_placeholders.get('CENTERED_TITLE', []))
-            # If no title, treat any single subtitle as main content.
             title_y = title_ph_list[0]['y'] if title_ph_list else candidate['y'] + 1 
             
             logging.debug(f"  -> Single SUBTITLE candidate: id={candidate['id']}, y={candidate['y']}. Title y={title_y}")
@@ -397,7 +401,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         
         # --- Content Assignment ---
         title_ph = (layout_placeholders.get('TITLE', []) or layout_placeholders.get('CENTERED_TITLE', []))
-        body_ph = layout_placeholders.get('BODY', [])
+        body_phs = list(layout_placeholders.get('BODY', []))
 
         if title_ph and slide_data['title']:
             new_ids['title'] = str(uuid.uuid4())
@@ -425,21 +429,54 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': footer_ph['index']}, 'objectId': new_ids['footer']})
             assigned_placeholder_ids.add(footer_ph['id'])
             logging.debug(f"  -> Assigned global footer to FOOTER placeholder {footer_ph['id']}")
-
-        # Priority 4: Body and its fallback
-        if slide_data['body']:
-            if body_ph:
-                new_ids['body'] = str(uuid.uuid4())
-                placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_ph[0]['index']}, 'objectId': new_ids['body']})
-                logging.debug("  -> Assigned body to BODY placeholder.")
-            elif main_subtitle_candidates:
-                body_fallback_ph = main_subtitle_candidates.pop(0)
-                new_ids['body'] = str(uuid.uuid4())
-                placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': body_fallback_ph['index']}, 'objectId': new_ids['body']})
-                assigned_placeholder_ids.add(body_fallback_ph['id'])
-                logging.debug(f"  -> Assigned body to fallback MAIN placeholder {body_fallback_ph['id']}")
-                logging.info(f"   -> No 'BODY' placeholder found, using a 'SUBTITLE' as fallback.")
         
+        # Special handling for two-column body layouts
+        if len(body_phs) == 2 and slide_data['body']:
+            logging.debug("  -> Detected Two-Column Body Layout.")
+            # Split the body content by the first bolded line
+            body_parts = re.split(r'(\n\s*\*\*.*?\*\*\s*\n)', slide_data['body'], 1)
+            
+            if len(body_parts) >= 3:
+                # Combine the splitter with the second part
+                part1_text = body_parts[0].strip()
+                part2_text = (body_parts[1] + body_parts[2]).strip()
+                
+                new_ids['body1'] = str(uuid.uuid4())
+                placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
+                
+                new_ids['body2'] = str(uuid.uuid4())
+                placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[1]['index']}, 'objectId': new_ids['body2']})
+                logging.debug(f"  -> Split body content into two columns.")
+
+            else: # Fallback if no splitter is found
+                part1_text = slide_data['body'].strip()
+                part2_text = ""
+                new_ids['body1'] = str(uuid.uuid4())
+                placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
+                logging.debug("  -> No splitter found, placing all body content in the left column.")
+        
+        # Standard body handling
+        elif body_phs and slide_data['body']:
+            new_ids['body1'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
+            part1_text = slide_data['body']
+            part2_text = ""
+            logging.debug("  -> Assigned body to single BODY placeholder.")
+        
+        # Fallback for body content
+        elif not body_phs and slide_data['body'] and main_subtitle_candidates:
+            body_fallback_ph = main_subtitle_candidates.pop(0)
+            new_ids['body1'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': body_fallback_ph['index']}, 'objectId': new_ids['body1']})
+            assigned_placeholder_ids.add(body_fallback_ph['id'])
+            part1_text = slide_data['body']
+            part2_text = ""
+            logging.debug(f"  -> Assigned body to fallback MAIN placeholder {body_fallback_ph['id']}")
+            logging.info(f"   -> No 'BODY' placeholder found, using a 'SUBTITLE' as fallback.")
+        else:
+            part1_text = ""
+            part2_text = ""
+            
         create_slide_request = {"createSlide": {"objectId": str(uuid.uuid4()), "slideLayoutReference": {"layoutId": layout_details['id']}, "placeholderIdMappings": placeholder_mappings}}
         response = service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": [create_slide_request]}).execute()
         
@@ -462,9 +499,13 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         if text_requests:
             service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": text_requests}).execute()
 
-        if 'body' in new_ids and slide_data['body']:
-            populate_body_with_rich_text(service, presentation_id, new_ids['body'], slide_data['body'])
-        elif not 'body' in new_ids and slide_data['body'] and not main_subtitle_candidates:
+        # Populate body content after slide creation
+        if 'body1' in new_ids and part1_text:
+            populate_body_with_rich_text(service, presentation_id, new_ids['body1'], part1_text)
+        if 'body2' in new_ids and part2_text:
+            populate_body_with_rich_text(service, presentation_id, new_ids['body2'], part2_text)
+        
+        if not ('body1' in new_ids or 'body2' in new_ids) and slide_data['body']:
              logging.warning(f"   -> No suitable placeholder found for body content on slide with class '{layout_class}'. Body was not inserted.")
 
     except HttpError as err:

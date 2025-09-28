@@ -312,15 +312,8 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
     # Split into lines, remove unnecessary blank lines
     lines = [line for line in rich_text.split('\n') if line.strip()]
 
-    # Determine the global bullet preset based on the first level-0 list item
-    preset = "BULLET_DISC_CIRCLE_SQUARE"  # Default to unordered
-    for line in lines:
-        leading_spaces = len(line) - len(line.lstrip())
-        if leading_spaces == 0:
-            stripped = line.lstrip()
-            if re.match(r'^\d+\.\s', stripped):
-                preset = "NUMBERED_DIGIT_ALPHA_ROMAN"
-                break
+    # The requirement is to treat all markdown lists (ordered or unordered) as bulleted lists.
+    preset = "BULLET_DISC_CIRCLE_SQUARE" 
 
     # Process each line: detect lists, remove markers, process formatting
     cleaned_lines = []
@@ -331,6 +324,8 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
         stripped = line.lstrip()
 
         is_list = False
+        
+        # Match both numbered lists (^\d+\.\s) AND unordered lists (^[-\*]\s)
         if re.match(r'^\d+\.\s', stripped):
             cleaned = re.sub(r'^\d+\.\s', '', stripped)
             is_list = True
@@ -363,6 +358,11 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
 
     # Apply formatting
     current_index = 0
+    # Use tighter indents for better visual appearance on slides.
+    INDENT_START_BASE = 20  # Base indent for text start (in points)
+    INDENT_HANGING = 18     # Negative indent to pull the bullet left (in points)
+    INDENT_PER_LEVEL = 20   # Indent for nesting (in points)
+
     for i, plain_line in enumerate(cleaned_lines):
         # Calculate the length of the line including the newline character,
         # but the final line does not have a trailing newline.
@@ -421,9 +421,10 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
                 }
             })
 
-            # Apply indents for nesting
-            indent_per_level = 36  # PT
-            hanging = 36  # PT
+            # Apply customized indents for nesting
+            # This ensures the text starts closer to the bullet.
+            indent_start = INDENT_START_BASE + para_info['level'] * INDENT_PER_LEVEL
+            
             requests.append({
                 "updateParagraphStyle": {
                     "objectId": object_id,
@@ -433,8 +434,8 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
                         "endIndex": paragraph_end_index
                     },
                     "style": {
-                        "indentFirstLine": {"magnitude": -hanging, "unit": "PT"},
-                        "indentStart": {"magnitude": hanging + para_info['level'] * indent_per_level, "unit": "PT"},
+                        "indentFirstLine": {"magnitude": -INDENT_HANGING, "unit": "PT"},
+                        "indentStart": {"magnitude": indent_start, "unit": "PT"},
                         "alignment": "START"
                     },
                     "fields": "indentFirstLine,indentStart,alignment"
@@ -584,7 +585,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         # Special handling for two-column body layouts
         if len(body_phs) == 2 and slide_data['body']:
             logging.debug("  -> Detected Two-Column Body Layout.")
-            # Restore the working regex to split by a bold line preceded and followed by a newline
+            # Use the robust regex to split by a bold line preceded and followed by a newline
             body_parts = re.split(r'(\n\s*\*\*.*?\*\*\s*\n)', slide_data['body'], 1)
             
             if len(body_parts) >= 3:
@@ -612,7 +613,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             new_ids['body1'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
             part1_text = slide_data['body']
-            # part2_text remains ""
+            part2_text = ""
             logging.debug("  -> Assigned body to single BODY placeholder.")
             
         # Fallback for body content
@@ -622,7 +623,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': body_fallback_ph['index']}, 'objectId': new_ids['body1']})
             assigned_placeholder_ids.add(body_fallback_ph['id'])
             part1_text = slide_data['body']
-            # part2_text remains ""
+            part2_text = ""
             logging.debug(f"  -> Assigned body to fallback MAIN placeholder {body_fallback_ph['id']}")
             logging.info(f"   -> No 'BODY' placeholder found, using a 'SUBTITLE' as fallback.")
             

@@ -80,7 +80,8 @@ def check_drive_folder_permissions(drive_service, folder_id):
 
 def get_template_theme_info(service, template_id, target_theme_name):
     """
-    Identifies the most-used master theme and returns its ID and layout mapping.
+    Identifies the most-used master theme and returns its ID and a detailed layout map
+    with placeholder types and indices.
     """
     try:
         presentation = service.presentations().get(presentationId=template_id).execute()
@@ -89,119 +90,80 @@ def get_template_theme_info(service, template_id, target_theme_name):
         masters = presentation.get('masters', [])
         all_layouts = presentation.get('layouts', [])
         
-        candidate_masters = [
-            m for m in masters 
-            if m.get('masterProperties', {}).get('displayName') == target_theme_name
-        ]
-        
+        candidate_masters = [m for m in masters if m.get('masterProperties', {}).get('displayName') == target_theme_name]
         if not candidate_masters:
-            logging.error(f"FATAL: No theme (master) named '{target_theme_name}' found in the template.")
+            logging.error(f"FATAL: No theme (master) named '{target_theme_name}' found.")
             return None, None
-        
-        logging.info(f"Found {len(candidate_masters)} master theme(s) named '{target_theme_name}'. Determining the most used one...")
 
+        logging.info(f"Found {len(candidate_masters)} master theme(s) named '{target_theme_name}'. Determining the most used one...")
         master_usage_count = {m.get('objectId'): 0 for m in candidate_masters}
         
         for slide in slides:
             layout_id = slide.get('slideProperties', {}).get('layoutObjectId')
             if not layout_id: continue
-            
-            parent_master_id = None
-            for layout in all_layouts:
-                if layout.get('objectId') == layout_id:
-                    parent_master_id = layout.get('layoutProperties', {}).get('masterObjectId')
-                    break
-            
+            parent_master_id = next((l.get('layoutProperties', {}).get('masterObjectId') for l in all_layouts if l.get('objectId') == layout_id), None)
             if parent_master_id in master_usage_count:
                 master_usage_count[parent_master_id] += 1
-        
-        logging.info(f"Usage count for candidate masters: {master_usage_count}")
         
         most_used_master_id = None
         if any(master_usage_count.values()):
              most_used_master_id = max(master_usage_count, key=master_usage_count.get)
         elif candidate_masters:
-             logging.warning(f"No slides in the template actually use the '{target_theme_name}' theme. Defaulting to the first one found.")
              most_used_master_id = candidate_masters[0].get('objectId')
 
         if not most_used_master_id:
-            logging.error(f"Could not determine a primary master to use for theme '{target_theme_name}'.")
+            logging.error(f"Could not determine a primary master for theme '{target_theme_name}'.")
             return None, None
 
-        logging.info(f"Selected master theme with ID: {most_used_master_id} as it is the most used.")
+        logging.info(f"Selected master theme with ID: {most_used_master_id}.")
         
         final_layouts = {}
         for layout in all_layouts:
             if layout.get('layoutProperties', {}).get('masterObjectId') == most_used_master_id:
+                layout_details = {'id': layout.get('objectId'), 'placeholders': {}}
+                for element in layout.get('pageElements', []):
+                    if 'placeholder' in element.get('shape', {}):
+                        ph = element['shape']['placeholder']
+                        ph_type = ph.get('type', 'BODY')
+                        ph_index = ph.get('index', 0)
+                        ph_details = {'id': element.get('objectId'), 'index': ph_index, 'type': ph_type}
+                        
+                        if ph_type not in layout_details['placeholders']:
+                            layout_details['placeholders'][ph_type] = []
+                        layout_details['placeholders'][ph_type].append(ph_details)
+                
                 display_name = layout.get('layoutProperties', {}).get('displayName')
-                layout_id = layout.get('objectId')
-                if display_name and layout_id:
-                    final_layouts[display_name] = layout_id
+                if display_name:
+                    final_layouts[display_name] = layout_details
 
-        logging.info("Fetched layouts from the selected master theme in the template presentation.")
+        logging.info("Fetched and processed layouts from the selected master theme.")
         return most_used_master_id, final_layouts
 
     except HttpError as err:
-        logging.error(f"Could not fetch and process template presentation with ID '{template_id}': {err}")
+        logging.error(f"Could not fetch and process template presentation: {err}")
         return None, None
 
 def update_master_slide_text(service, presentation_id, master_id):
     """Finds and replaces specific text strings on the master slide."""
     try:
         logging.info(f"Checking master slide '{master_id}' for text to update...")
-        presentation = service.presentations().get(presentationId=presentation_id).execute()
-        masters = presentation.get('masters', [])
-        
-        target_master = None
-        for master in masters:
-            if master.get('objectId') == master_id:
-                target_master = master
-                break
-        
-        if not target_master:
-            logging.warning(f"Could not find the master slide with ID '{master_id}' in the new presentation.")
-            return
-
-        replacements = {
-            "CONFIDENTIAL designator": "CONFIDENTIAL",
-            "V0000000": "V1.0"
-        }
+        replacements = {"CONFIDENTIAL designator": "CONFIDENTIAL", "V0000000": "V1.0"}
         update_requests = []
-        
-        for element in target_master.get('pageElements', []):
-            if 'shape' in element and 'text' in element['shape']:
-                for run in element['shape']['text'].get('textElements', []):
-                    if 'textRun' in run:
-                        element_text = run['textRun']['content'].strip()
-                        if element_text in replacements:
-                            logging.info(f"Found text '{element_text}' to replace on master slide.")
-                            # Request to delete the old text
-                            update_requests.append({
-                                'deleteText': {
-                                    'objectId': element['objectId'],
-                                    'textRange': {'type': 'ALL'}
-                                }
-                            })
-                            # Request to insert the new text
-                            update_requests.append({
-                                'insertText': {
-                                    'objectId': element['objectId'],
-                                    'text': replacements[element_text],
-                                    'insertionIndex': 0
-                                }
-                            })
+        for search_text, replace_text in replacements.items():
+            update_requests.append({
+                'replaceAllText': {
+                    'replaceText': replace_text, 'pageObjectIds': [master_id],
+                    'containsText': {'text': search_text, 'matchCase': False}
+                }
+            })
         
         if update_requests:
-            service.presentations().batchUpdate(
-                presentationId=presentation_id, body={"requests": update_requests}
-            ).execute()
+            service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": update_requests}).execute()
             logging.info("✅ Successfully updated text on the master slide.")
-
     except HttpError as err:
         logging.error(f"An error occurred while updating the master slide: {err}")
 
 def load_layout_mapping_from_yaml(file_path="layouts.yaml"):
-    """Loads the class-to-layout mapping from a local YAML file."""
     try:
         with open(file_path, 'r') as f:
             mapping = yaml.safe_load(f)
@@ -214,22 +176,18 @@ def load_layout_mapping_from_yaml(file_path="layouts.yaml"):
     return None
 
 def copy_template_presentation(drive_service, template_id, new_title, folder_id):
-    """Copies the template to the specified output folder."""
     try:
         logging.info(f"Copying template to create new presentation '{new_title}'...")
         copy_body = {'name': new_title, 'parents': [folder_id]}
         copied_file = drive_service.files().copy(
             fileId=template_id, body=copy_body, supportsAllDrives=True
         ).execute()
-        presentation_id = copied_file.get('id')
-        logging.info(f"✅ Template copied successfully. New Presentation ID: {presentation_id}")
-        return presentation_id
+        return copied_file.get('id')
     except HttpError as err:
         logging.error(f"Failed to copy template presentation: {err}")
     return None
 
 def preprocess_markdown(raw_markdown_content):
-    """Cleans up the markdown content by removing custom citation tags using Unicode regex."""
     cite_start_regex = r'\u005B\u0063\u0069\u0074\u0065\u005F\u0073\u0074\u0061\u0072\u0074\u005D'
     content = re.sub(cite_start_regex, '', raw_markdown_content)
     cite_xx_regex = r'\u005B\u0063\u0069\u0074\u0065\u003A\u0020[\u0030-\u0039]+\u005D'
@@ -237,21 +195,17 @@ def preprocess_markdown(raw_markdown_content):
     return content
 
 def parse_global_headers(raw_markdown_content):
-    """Parses header and footer from the first _COMMENT_START_ block."""
     header_text, footer_text = "", ""
     first_comment_match = re.search(r'_COMMENT_START_(.*?)_COMMENT_END_', raw_markdown_content, re.DOTALL)
     if first_comment_match:
         comment_content = first_comment_match.group(1)
         header_match = re.search(r"header:\s*'(.*?)'", comment_content)
         footer_match = re.search(r"footer:\s*'(.*?)'", comment_content)
-        if header_match:
-            header_text = header_match.group(1).strip()
-        if footer_match:
-            footer_text = footer_match.group(1).strip()
+        if header_match: header_text = header_match.group(1).strip()
+        if footer_match: footer_text = footer_match.group(1).strip()
     return header_text, footer_text
 
 def parse_markdown_to_slides(processed_content):
-    """Parses the markdown file content into a list of slide data objects."""
     slides_data = []
     content_without_header = re.sub(r'_COMMENT_START_(.*?)_COMMENT_END_', '', processed_content, count=1, flags=re.DOTALL)
     raw_slides = content_without_header.split("\n---\n")
@@ -259,59 +213,52 @@ def parse_markdown_to_slides(processed_content):
         if not slide_text.strip(): continue
         speaker_notes, layout_class = "", "default"
         notes_match = re.search(r'_COMMENT_START_\s*Speaker notes:(.*?)_COMMENT_END_', slide_text, re.IGNORECASE | re.DOTALL)
-        if notes_match:
-            speaker_notes = notes_match.group(1).strip()
-            slide_text = slide_text.replace(notes_match.group(0), "")
-        
+        if notes_match: speaker_notes = notes_match.group(1).strip(); slide_text = slide_text.replace(notes_match.group(0), "")
         class_match = re.search(r'_COMMENT_START_\s*_class:\s*([\w\s-]+)\\?_COMMENT_END_', slide_text, re.IGNORECASE)
-        if class_match:
-            layout_class = class_match.group(1).strip().split()[0]
-            slide_text = slide_text.replace(class_match.group(0), "")
-        
+        if class_match: layout_class = class_match.group(1).strip().split()[0]; slide_text = slide_text.replace(class_match.group(0), "")
         slide_content = re.sub(r'_COMMENT_START_.*?\\?_COMMENT_END_', '', slide_text, flags=re.DOTALL).strip()
         slides_data.append({"content": slide_content, "notes": speaker_notes, "class": layout_class})
     logging.info(f"Markdown file parsed into {len(slides_data)} slides.")
     return slides_data
 
 def populate_body_with_rich_text(service, presentation_id, body_id, markdown_text):
-    """Parses markdown and applies rich text formatting to a placeholder."""
-    if not markdown_text.strip():
-        return
-
-    md = MarkdownIt()
-    tokens = md.parse(markdown_text)
-
+    if not markdown_text.strip(): return
+    md = MarkdownIt(); tokens = md.parse(markdown_text)
     plain_text_parts, formatting_styles, list_requests = [], [], []
     char_cursor, style_stack = 0, []
+    INDENTATION_PER_LEVEL = 18 # Standard indentation in points
 
     for token in tokens:
-        if token.type == 'paragraph_open':
-            para_start = char_cursor
+        if token.type == 'paragraph_open': para_start = char_cursor
         elif token.type == 'inline':
             for child in token.children:
-                if child.type == 'text':
-                    plain_text_parts.append(child.content)
-                    char_cursor += len(child.content)
-                elif child.type in ['strong_open', 'em_open']:
-                    style_stack.append({'type': child.type, 'start': char_cursor})
+                if child.type == 'text': plain_text_parts.append(child.content); char_cursor += len(child.content)
+                elif child.type in ['strong_open', 'em_open']: style_stack.append({'type': child.type, 'start': char_cursor})
                 elif child.type in ['strong_close', 'em_close']:
                     if not style_stack: continue
-                    style = style_stack.pop()
-                    formatting_styles.append({'type': style['type'], 'range': (style['start'], char_cursor)})
+                    style = style_stack.pop(); formatting_styles.append({'type': style['type'], 'range': (style['start'], char_cursor)})
         elif token.type == 'paragraph_close':
             is_last_token = (token == tokens[-1])
-            if not is_last_token and char_cursor > 0 and char_cursor > para_start:
-                plain_text_parts.append('\n'); char_cursor += 1
+            if not is_last_token and char_cursor > 0 and char_cursor > para_start: plain_text_parts.append('\n'); char_cursor += 1
             
             if token.level > 0:
                 end_index = char_cursor - 1 if not is_last_token else char_cursor
-                list_requests.append({
-                    "createParagraphBullets": {
-                        "objectId": body_id,
-                        "textRange": {"type": "FIXED_RANGE", "startIndex": para_start, "endIndex": end_index },
-                        "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE", "nestingLevel": token.level - 1
-                    }
-                })
+                text_range = {"type": "FIXED_RANGE", "startIndex": para_start, "endIndex": end_index }
+                
+                # Step 1: Create the bullet point
+                list_requests.append({"createParagraphBullets": {"objectId": body_id, "textRange": text_range, "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE"}})
+                
+                # Step 2: If nested, apply indentation
+                nesting_level = token.level - 1
+                if nesting_level > 0:
+                    indent = nesting_level * INDENTATION_PER_LEVEL
+                    list_requests.append({
+                        "updateParagraphStyle": {
+                            "objectId": body_id, "textRange": text_range,
+                            "style": {"indentStart": {"magnitude": indent, "unit": "PT"}},
+                            "fields": "indentStart"
+                        }
+                    })
 
     plain_text = "".join(plain_text_parts)
     if not plain_text: return
@@ -320,26 +267,21 @@ def populate_body_with_rich_text(service, presentation_id, body_id, markdown_tex
     all_requests.extend(list_requests)
 
     for style in formatting_styles:
-        style_update = {}
+        style_update = {};
         if style['type'] == 'strong_open': style_update['bold'] = True
         if style['type'] == 'em_open': style_update['italic'] = True
-        all_requests.append({
-            "updateTextStyle": {
-                "objectId": body_id, "textRange": {"type": "FIXED_RANGE", "startIndex": style['range'][0], "endIndex": style['range'][1]},
-                "style": style_update, "fields": ",".join(style_update.keys())
-            }
-        })
+        all_requests.append({"updateTextStyle": {"objectId": body_id, "textRange": {"type": "FIXED_RANGE", "startIndex": style['range'][0], "endIndex": style['range'][1]}, "style": style_update, "fields": ",".join(style_update.keys())}})
     
-    if len(all_requests) > 0:
-        service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": all_requests}).execute()
+    if len(all_requests) > 0: service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": all_requests}).execute()
 
 def add_slide_to_presentation(service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, header_text, footer_text):
-    """Creates a slide and populates its placeholders with parsed content."""
+    """Creates a slide using placeholder mappings and populates it with parsed content."""
     layout_class = slide_data['class']
     layout_name = class_to_layout_map.get(layout_class, class_to_layout_map.get('default'))
-    layout_id = template_layouts_map.get(layout_name)
-    if not layout_id:
-        logging.warning(f"Layout '{layout_name}' for class '{layout_class}' not found in template. Using default API layout.")
+    layout_details = template_layouts_map.get(layout_name)
+    if not layout_details:
+        logging.error(f"FATAL: Layout name '{layout_name}' for class '{layout_class}' not found in the template's theme. Check layouts.yaml.")
+        raise Exception(f"Layout not found: {layout_name}")
 
     slide_content = slide_data['content']
     title, body_text_md = "", ""
@@ -347,74 +289,53 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
     title_found = False
     for i, line in enumerate(lines):
         if line.strip().startswith("#"):
-            title = line.lstrip('# ').strip()
-            body_text_md = "\n".join(lines[i+1:]).strip()
-            title_found = True
-            break
-    if not title_found:
-        body_text_md = slide_content
-    
-    try:
-        create_slide_request = {"createSlide": {"objectId": str(uuid.uuid4())}}
-        if layout_id:
-            create_slide_request["createSlide"]["slideLayoutReference"] = {"layoutId": layout_id}
-            
-        response = service.presentations().batchUpdate(
-            presentationId=presentation_id, body={"requests": [create_slide_request]}
-        ).execute()
-        slide_info = response['replies'][0]['createSlide']
-        
-        text_requests, body_id, title_id = [], None, None
-        
-        # --- Flexible Placeholder Finding ---
-        all_subtitle_placeholders = []
-        
-        for element in slide_info.get('pageElements', []):
-            placeholder = element.get('shape', {}).get('placeholder', {})
-            object_id = element.get('objectId')
-            
-            if placeholder.get('type') in ('TITLE', 'CENTERED_TITLE'):
-                title_id = object_id
-            elif placeholder.get('type') == 'BODY':
-                body_id = object_id
-            elif placeholder.get('type') == 'SUBTITLE':
-                all_subtitle_placeholders.append({'id': object_id, 'y': element.get('transform', {}).get('translateY', 0)})
+            title = line.lstrip('# ').strip(); body_text_md = "\n".join(lines[i+1:]).strip(); title_found = True; break
+    if not title_found: body_text_md = slide_content
 
-        # Populate Title
-        if title_id and title:
-            text_requests.append({"insertText": {"objectId": title_id, "text": title}})
+    try:
+        placeholder_mappings = []
+        new_ids = {}
+        layout_placeholders = layout_details.get('placeholders', {})
+
+        title_ph = (layout_placeholders.get('TITLE', []) or layout_placeholders.get('CENTERED_TITLE', []))
+        if title_ph: new_ids['title'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': title_ph[0]['type'], 'index': title_ph[0]['index']}, 'objectId': new_ids['title']})
+
+        body_ph = layout_placeholders.get('BODY', [])
+        subtitle_phs = layout_placeholders.get('SUBTITLE', [])
         
-        # Populate Header and Footer from available subtitles, leaving the rest for potential body fallback
-        if len(all_subtitle_placeholders) >= 2:
-            all_subtitle_placeholders.sort(key=lambda p: p['y'])
-            header_placeholder = all_subtitle_placeholders.pop(0)
-            footer_placeholder = all_subtitle_placeholders.pop(-1)
-            if header_text: text_requests.append({"insertText": {"objectId": header_placeholder['id'], "text": header_text}})
-            if footer_text: text_requests.append({"insertText": {"objectId": footer_placeholder['id'], "text": footer_text}})
+        if len(subtitle_phs) >= 1 and header_text: new_ids['header'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': subtitle_phs[0]['index']}, 'objectId': new_ids['header']})
+        if len(subtitle_phs) >= 2 and footer_text: new_ids['footer'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': subtitle_phs[-1]['index']}, 'objectId': new_ids['footer']})
+
+        if body_ph:
+            new_ids['body'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_ph[0]['index']}, 'objectId': new_ids['body']})
+        elif len(subtitle_phs) > 2:
+            new_ids['body'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': subtitle_phs[1]['index']}, 'objectId': new_ids['body']})
         
-        # CORRECTED LOGIC: If a BODY placeholder was not found, use a remaining SUBTITLE as a fallback
-        if not body_id and all_subtitle_placeholders:
-             body_id = all_subtitle_placeholders[0]['id']
-             logging.info("   -> No 'BODY' placeholder found, using 'SUBTITLE' as fallback for body content.")
+        create_slide_request = {"createSlide": {"objectId": str(uuid.uuid4()), "slideLayoutReference": {"layoutId": layout_details['id']}, "placeholderIdMappings": placeholder_mappings}}
         
-        # Populate speaker notes
+        response = service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": [create_slide_request]}).execute()
+        
+        text_requests = []
+        if 'title' in new_ids and title: text_requests.append({"insertText": {"objectId": new_ids['title'], "text": title}})
+        if 'header' in new_ids and header_text: text_requests.append({"insertText": {"objectId": new_ids['header'], "text": header_text}})
+        if 'footer' in new_ids and footer_text: text_requests.append({"insertText": {"objectId": new_ids['footer'], "text": footer_text}})
+        
         if slide_data['notes']:
-            notes_page_id = slide_info.get("slideProperties", {}).get("notesPage", {}).get("notesProperties", {}).get("speakerNotesObjectId")
+            notes_page_id = response['replies'][0]['createSlide'].get("slideProperties", {}).get("notesPage", {}).get("notesProperties", {}).get("speakerNotesObjectId")
             if notes_page_id: text_requests.append({"insertText": {"objectId": notes_page_id, "text": slide_data['notes']}})
         
         if text_requests:
             service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": text_requests}).execute()
 
-        # Populate the main body content using the determined placeholder ID
-        if body_id and body_text_md:
-            populate_body_with_rich_text(service, presentation_id, body_id, body_text_md)
-        elif not body_id and body_text_md:
-             logging.warning(f"   -> Could not find a 'BODY' or fallback 'SUBTITLE' placeholder for content on slide with class '{layout_class}'. Body content was not inserted.")
+        if 'body' in new_ids and body_text_md:
+            populate_body_with_rich_text(service, presentation_id, new_ids['body'], body_text_md)
+        elif not 'body' in new_ids and body_text_md:
+             logging.warning(f"   -> No suitable placeholder found for body content on slide with class '{layout_class}'. Body was not inserted.")
 
     except HttpError as err:
         logging.error(f"An error occurred while adding a slide: {err}", exc_info=True)
-    except (KeyError, IndexError) as e:
-        logging.error(f"Could not parse response after creating slide: {e}", exc_info=True)
+    except Exception as e:
+        logging.error(f"An unexpected error occurred in add_slide_to_presentation: {e}", exc_info=True)
 
 
 # --- 4. MAIN EXECUTION LOGIC ---
@@ -462,8 +383,8 @@ def main():
             if not presentation_id:
                 raise Exception("Failed to copy template and create new presentation.")
             
-            # Update the master slide text in the new presentation
-            update_master_slide_text(slides_service, presentation_id, most_used_master_id)
+            if most_used_master_id:
+                update_master_slide_text(slides_service, presentation_id, most_used_master_id)
             
             initial_slide_ids = []
             try:

@@ -80,12 +80,13 @@ def check_drive_folder_permissions(drive_service, folder_id):
 
 def get_template_theme_info(service, template_id, target_theme_name):
     """
-    Identifies the most-used master theme and returns its ID and a detailed layout map
-    with placeholder types and indices.
+    Identifies the most-used master theme and returns its ID, a detailed layout map,
+    and the presentation's page size.
     """
     try:
         presentation = service.presentations().get(presentationId=template_id).execute()
         
+        page_size = presentation.get('pageSize')
         slides = presentation.get('slides', [])
         masters = presentation.get('masters', [])
         all_layouts = presentation.get('layouts', [])
@@ -93,7 +94,7 @@ def get_template_theme_info(service, template_id, target_theme_name):
         candidate_masters = [m for m in masters if m.get('masterProperties', {}).get('displayName') == target_theme_name]
         if not candidate_masters:
             logging.error(f"FATAL: No theme (master) named '{target_theme_name}' found.")
-            return None, None
+            return None, None, None
 
         logging.info(f"Found {len(candidate_masters)} master theme(s) named '{target_theme_name}'. Determining the most used one...")
         master_usage_count = {m.get('objectId'): 0 for m in candidate_masters}
@@ -113,7 +114,7 @@ def get_template_theme_info(service, template_id, target_theme_name):
 
         if not most_used_master_id:
             logging.error(f"Could not determine a primary master for theme '{target_theme_name}'.")
-            return None, None
+            return None, None, None
 
         logging.info(f"Selected master theme with ID: {most_used_master_id}.")
         
@@ -126,23 +127,18 @@ def get_template_theme_info(service, template_id, target_theme_name):
                         ph = element['shape']['placeholder']
                         ph_type = ph.get('type', 'BODY')
                         ph_index = ph.get('index', 0)
-                        ph_details = {'id': element.get('objectId'), 'index': ph_index, 'type': ph_type}
+                        
+                        transform = element.get('transform', {})
+                        y_pos = transform.get('translateY', 0)
+                        height = element.get('size', {}).get('height', {}).get('magnitude', 0)
+
+                        ph_details = {'id': element.get('objectId'), 'index': ph_index, 'type': ph_type, 'y': y_pos, 'height': height}
                         
                         if ph_type not in layout_details['placeholders']:
                             layout_details['placeholders'][ph_type] = []
                         layout_details['placeholders'][ph_type].append(ph_details)
                 
-                # Sort subtitles by their Y position
                 if 'SUBTITLE' in layout_details['placeholders']:
-                    # CORRECTED LINE: Use layout.get('objectId') instead of layout['id']
-                    full_layout_details = service.presentations().pages().get(presentationId=template_id, pageObjectId=layout.get('objectId')).execute()
-                    subtitle_y_positions = {
-                        el['objectId']: el.get('transform', {}).get('translateY', 0)
-                        for el in full_layout_details.get('pageElements', [])
-                        if 'placeholder' in el.get('shape', {}) and el['shape']['placeholder'].get('type') == 'SUBTITLE'
-                    }
-                    for ph in layout_details['placeholders']['SUBTITLE']:
-                        ph['y'] = subtitle_y_positions.get(ph['id'], 0)
                     layout_details['placeholders']['SUBTITLE'].sort(key=lambda p: p['y'])
 
                 display_name = layout.get('layoutProperties', {}).get('displayName')
@@ -150,11 +146,12 @@ def get_template_theme_info(service, template_id, target_theme_name):
                     final_layouts[display_name] = layout_details
 
         logging.info("Fetched and processed layouts from the selected master theme.")
-        return most_used_master_id, final_layouts
+        return most_used_master_id, final_layouts, page_size
 
     except HttpError as err:
         logging.error(f"Could not fetch and process template presentation: {err}")
-        return None, None
+        return None, None, None
+
 
 def update_master_slide_text(service, presentation_id, master_id):
     """Finds and replaces specific text strings on the master slide."""
@@ -314,7 +311,7 @@ def populate_body_with_rich_text(service, presentation_id, body_id, markdown_tex
     
     if len(all_requests) > 0: service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": all_requests}).execute()
 
-def add_slide_to_presentation(service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, header_text, footer_text):
+def add_slide_to_presentation(service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, page_size, header_text, footer_text):
     """Creates a slide using placeholder mappings and populates it with parsed content."""
     layout_class = slide_data['class']
     layout_name = class_to_layout_map.get(layout_class, class_to_layout_map.get('default'))
@@ -328,33 +325,54 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         new_ids = {}
         layout_placeholders = layout_details.get('placeholders', {})
         
+        # --- Classify SUBTITLE placeholders ---
+        all_subtitle_phs = sorted(layout_placeholders.get('SUBTITLE', []), key=lambda p: p['y'])
+        
+        header_ph, footer_ph = None, None
+        main_subtitle_candidates = []
+        
+        if len(all_subtitle_phs) >= 2:
+            # The highest is the header, the lowest is the footer.
+            header_ph = all_subtitle_phs.pop(0)
+            footer_ph = all_subtitle_phs.pop(-1)
+            # Anything left in the middle is a main subtitle candidate
+            main_subtitle_candidates = all_subtitle_phs
+        else:
+            # If there's only one or zero, it's for main content, not header/footer.
+            main_subtitle_candidates = all_subtitle_phs
+        
+        # --- Assign content based on classification ---
         title_ph = (layout_placeholders.get('TITLE', []) or layout_placeholders.get('CENTERED_TITLE', []))
         body_ph = layout_placeholders.get('BODY', [])
-        subtitle_phs = list(layout_placeholders.get('SUBTITLE', []))
-        
-        if title_ph and slide_data['title']:
-            new_ids['title'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': title_ph[0]['type'], 'index': title_ph[0]['index']}, 'objectId': new_ids['title']})
 
-        if subtitle_phs and header_text:
-            header_ph = subtitle_phs.pop(0)
-            new_ids['header'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': header_ph['index']}, 'objectId': new_ids['header']})
+        if title_ph and slide_data['title']:
+            new_ids['title'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': title_ph[0]['type'], 'index': title_ph[0]['index']}, 'objectId': new_ids['title']})
+
+        if header_text and header_ph:
+            new_ids['header'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': header_ph['index']}, 'objectId': new_ids['header']})
 
         final_footer_text = footer_text if footer_text else "Red Hat Consulting"
-        if subtitle_phs and final_footer_text:
-            footer_ph = subtitle_phs.pop(-1)
-            new_ids['footer'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': footer_ph['index']}, 'objectId': new_ids['footer']})
+        if final_footer_text and footer_ph:
+            new_ids['footer'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': footer_ph['index']}, 'objectId': new_ids['footer']})
 
-        if subtitle_phs and slide_data['subtitle']:
-            subtitle_ph = subtitle_phs.pop(0)
-            new_ids['subtitle'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': subtitle_ph['index']}, 'objectId': new_ids['subtitle']})
+        if slide_data['subtitle'] and main_subtitle_candidates:
+            subtitle_ph = main_subtitle_candidates.pop(0)
+            new_ids['subtitle'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': subtitle_ph['index']}, 'objectId': new_ids['subtitle']})
 
+        # --- Handle body content and fallbacks ---
         if body_ph and slide_data['body']:
-            new_ids['body'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_ph[0]['index']}, 'objectId': new_ids['body']})
-        elif subtitle_phs and slide_data['body']:
-            body_fallback_ph = subtitle_phs.pop(0)
-            new_ids['body'] = str(uuid.uuid4()); placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': body_fallback_ph['index']}, 'objectId': new_ids['body']})
+            new_ids['body'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_ph[0]['index']}, 'objectId': new_ids['body']})
+        elif slide_data['body'] and main_subtitle_candidates:
+            body_fallback_ph = main_subtitle_candidates.pop(0)
+            new_ids['body'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': body_fallback_ph['index']}, 'objectId': new_ids['body']})
             logging.info(f"   -> No 'BODY' placeholder found, using a 'SUBTITLE' as fallback.")
-            
+        
         create_slide_request = {"createSlide": {"objectId": str(uuid.uuid4()), "slideLayoutReference": {"layoutId": layout_details['id']}, "placeholderIdMappings": placeholder_mappings}}
         response = service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": [create_slide_request]}).execute()
         
@@ -365,9 +383,15 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         if 'footer' in new_ids: text_requests.append({"insertText": {"objectId": new_ids['footer'], "text": final_footer_text}})
 
         if slide_data['notes']:
-            notes_page_id = response['replies'][0]['createSlide'].get("slideProperties", {}).get("notesPage", {}).get("notesProperties", {}).get("speakerNotesObjectId")
-            if notes_page_id: text_requests.append({"insertText": {"objectId": notes_page_id, "text": slide_data['notes']}})
-        
+            new_slide_id = response['replies'][0]['createSlide']['objectId']
+            slide_page = service.presentations().pages().get(presentationId=presentation_id, pageObjectId=new_slide_id).execute()
+            notes_page_props = slide_page.get('slideProperties', {}).get('notesPage', {})
+            if notes_page_props:
+                notes_properties = notes_page_props.get('notesProperties', {})
+                speaker_notes_object_id = notes_properties.get('speakerNotesObjectId')
+                if speaker_notes_object_id:
+                    text_requests.append({"insertText": {"objectId": speaker_notes_object_id, "text": slide_data['notes']}})
+
         if text_requests:
             service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": text_requests}).execute()
 
@@ -396,7 +420,7 @@ def main():
     class_to_layout_map = load_layout_mapping_from_yaml()
     if class_to_layout_map is None: sys.exit(1)
 
-    most_used_master_id, template_layouts_map = get_template_theme_info(slides_service, TEMPLATE_ID, TARGET_THEME_NAME)
+    most_used_master_id, template_layouts_map, page_size = get_template_theme_info(slides_service, TEMPLATE_ID, TARGET_THEME_NAME)
     if not template_layouts_map: sys.exit(1)
 
     if not os.path.isdir(SOURCE_DIRECTORY):
@@ -439,7 +463,7 @@ def main():
 
             for i, slide_data in enumerate(slides):
                 logging.info(f"  - Creating slide {i+1}/{len(slides)} (class: {slide_data['class']})...")
-                add_slide_to_presentation(slides_service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, header_text, footer_text)
+                add_slide_to_presentation(slides_service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, page_size, header_text, footer_text)
             
             if initial_slide_ids:
                 logging.info(f"Removing {len(initial_slide_ids)} slides that came from the template...")

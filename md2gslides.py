@@ -61,8 +61,9 @@ def check_drive_folder_permissions(drive_service, folder_id):
     """Verifies that the service account can create files in the target folder."""
     try:
         logging.info(f"Verifying permissions for target folder ID: {folder_id}...")
+        # Add supportsAllDrives=True to work with Shared Drives
         folder_metadata = drive_service.files().get(
-            fileId=folder_id, fields='capabilities'
+            fileId=folder_id, fields='capabilities', supportsAllDrives=True
         ).execute()
         
         if folder_metadata.get('capabilities', {}).get('canAddChildren'):
@@ -94,15 +95,26 @@ def get_template_layouts(service, template_id):
         logging.error(f"Could not fetch template presentation with ID '{template_id}': {err}"); return None
 
 def load_layout_mapping_from_sheet(service, spreadsheet_id):
-    """Loads the class-to-layout mapping from a Google Sheet."""
+    """Loads the class-to-layout mapping from the first visible sheet in a Google Sheet."""
     try:
-        result = service.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range="Sheet1!A2:B").execute()
+        spreadsheet_metadata = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        sheets = spreadsheet_metadata.get('sheets', '')
+        if not sheets:
+            logging.error(f"No sheets found in Google Sheet with ID '{spreadsheet_id}'.")
+            return None
+        
+        first_sheet_name = sheets[0].get('properties', {}).get('title', 'Sheet1')
+        logging.info(f"Found first sheet named '{first_sheet_name}'. Reading data from it.")
+        
+        sheet_range = f"'{first_sheet_name}'!A2:B"
+        
+        result = service.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range=sheet_range).execute()
         values = result.get('values', [])
         if not values:
-            logging.warning(f"No data found in Google Sheet '{spreadsheet_id}'.")
+            logging.warning(f"No data found in sheet '{first_sheet_name}'.")
             return {}
         mapping = {row[0].strip(): row[1].strip() for row in values if len(row) >= 2 and row[0].strip()}
-        logging.info(f"Layout mapping loaded from Google Sheet ID '{spreadsheet_id}'.")
+        logging.info(f"Layout mapping loaded successfully.")
         return mapping
     except HttpError as err:
         logging.error(f"Failed to fetch layout mapping from Google Sheet '{spreadsheet_id}': {err}"); return None
@@ -112,7 +124,10 @@ def copy_template_presentation(drive_service, template_id, new_title, folder_id)
     try:
         logging.info(f"Copying template to create new presentation '{new_title}'...")
         copy_body = {'name': new_title, 'parents': [folder_id]}
-        copied_file = drive_service.files().copy(fileId=template_id, body=copy_body).execute()
+        # Add supportsAllDrives=True to work with Shared Drives
+        copied_file = drive_service.files().copy(
+            fileId=template_id, body=copy_body, supportsAllDrives=True
+        ).execute()
         presentation_id = copied_file.get('id')
         logging.info(f"✅ Template copied successfully. New Presentation ID: {presentation_id}")
         return presentation_id
@@ -122,17 +137,10 @@ def copy_template_presentation(drive_service, template_id, new_title, folder_id)
 
 def preprocess_markdown(raw_markdown_content):
     """Cleans up the markdown content by removing custom citation tags using Unicode regex."""
-    
-    # Regex for '[cite_start]' using only Unicode character codes.
-    # \u005B=[, \u0063=c, \u0069=i, \u0074=t, \u0065=e, \u005F=_, \u0073=s, \u0061=a, \u0072=r, \u005D=]
     cite_start_regex = r'\u005B\u0063\u0069\u0074\u0065\u005F\u0073\u0074\u0061\u0072\u0074\u005D'
     content = re.sub(cite_start_regex, '', raw_markdown_content)
-
-    # Regex for '[cite: XX]' using only Unicode character codes.
-    # \u003A=:, \u0020=space, [\u0030-\u0039] represents digits 0-9
     cite_xx_regex = r'\u005B\u0063\u0069\u0074\u0065\u003A\u0020[\u0030-\u0039]+\u005D'
     content = re.sub(cite_xx_regex, '', content)
-    
     return content
 
 def parse_global_headers(raw_markdown_content):
@@ -380,3 +388,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

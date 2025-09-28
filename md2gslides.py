@@ -35,7 +35,7 @@ except KeyError as e:
 
 SCOPES = [
     "https://www.googleapis.com/auth/presentations",
-    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets.readonly",
 ]
 
@@ -121,16 +121,24 @@ def copy_template_presentation(drive_service, template_id, new_title, folder_id)
     return None
 
 def preprocess_markdown(raw_markdown_content):
-    """Cleans up the markdown content by converting custom tags."""
-    content = raw_markdown_content.replace("_COMMENT_START_", "")
-    content = content.replace("\[cite_start\]", "")
-    content = re.sub(r'\', '', content)
+    """Cleans up the markdown content by removing custom citation tags using Unicode regex."""
+    
+    # Regex for '[cite_start]' using only Unicode character codes.
+    # \u005B=[, \u0063=c, \u0069=i, \u0074=t, \u0065=e, \u005F=_, \u0073=s, \u0061=a, \u0072=r, \u005D=]
+    cite_start_regex = r'\u005B\u0063\u0069\u0074\u0065\u005F\u0073\u0074\u0061\u0072\u0074\u005D'
+    content = re.sub(cite_start_regex, '', raw_markdown_content)
+
+    # Regex for '[cite: XX]' using only Unicode character codes.
+    # \u003A=:, \u0020=space, [\u0030-\u0039] represents digits 0-9
+    cite_xx_regex = r'\u005B\u0063\u0069\u0074\u0065\u003A\u0020[\u0030-\u0039]+\u005D'
+    content = re.sub(cite_xx_regex, '', content)
+    
     return content
 
 def parse_global_headers(raw_markdown_content):
-    """Parses header and footer from the first comment block."""
+    """Parses header and footer from the first _COMMENT_START_ block."""
     header_text, footer_text = "", ""
-    first_comment_match = re.search(r'', raw_markdown_content, re.DOTALL)
+    first_comment_match = re.search(r'_COMMENT_START_(.*?)_COMMENT_END_', raw_markdown_content, re.DOTALL)
     if first_comment_match:
         comment_content = first_comment_match.group(1)
         header_match = re.search(r"header:\s*'(.*?)'", comment_content)
@@ -144,21 +152,21 @@ def parse_global_headers(raw_markdown_content):
 def parse_markdown_to_slides(processed_content):
     """Parses the markdown file content into a list of slide data objects."""
     slides_data = []
-    # Remove the global header comment block before splitting into slides
-    content_without_header = re.sub(r'', '', processed_content, count=1, flags=re.DOTALL)
+    content_without_header = re.sub(r'_COMMENT_START_(.*?)_COMMENT_END_', '', processed_content, count=1, flags=re.DOTALL)
     raw_slides = content_without_header.split("\n---\n")
     for slide_text in raw_slides:
         if not slide_text.strip(): continue
         speaker_notes, layout_class = "", "default"
-        notes_match = re.search(r'', slide_text, re.IGNORECASE | re.DOTALL)
+        notes_match = re.search(r'_COMMENT_START_\s*Speaker notes:(.*?)_COMMENT_END_', slide_text, re.IGNORECASE | re.DOTALL)
         if notes_match:
             speaker_notes = notes_match.group(1).strip()
             slide_text = slide_text.replace(notes_match.group(0), "")
-        class_match = re.search(r'', slide_text, re.IGNORECASE)
+        class_match = re.search(r'_COMMENT_START_\s*_class:\s*([\w\s-]+)_COMMENT_END_', slide_text, re.IGNORECASE)
         if class_match:
             layout_class = class_match.group(1).strip().split()[0]
             slide_text = slide_text.replace(class_match.group(0), "")
-        slide_content = re.sub(r'', '', slide_text, flags=re.DOTALL).strip()
+        
+        slide_content = re.sub(r'_COMMENT_START_.*?_COMMENT_END_', '', slide_text, flags=re.DOTALL).strip()
         slides_data.append({"content": slide_content, "notes": speaker_notes, "class": layout_class})
     logging.info(f"Markdown file parsed into {len(slides_data)} slides.")
     return slides_data
@@ -172,13 +180,12 @@ def populate_body_with_rich_text(service, presentation_id, body_id, markdown_tex
     tokens = md.parse(markdown_text)
 
     plain_text_parts = []
-    formatting_styles = [] # For bold, italic, etc.
+    formatting_styles = []
     list_requests = []
     
     char_cursor = 0
     style_stack = []
 
-    # First pass: Build plain text and identify paragraph/list structures
     for token in tokens:
         if token.type == 'paragraph_open':
             para_start = char_cursor
@@ -190,21 +197,19 @@ def populate_body_with_rich_text(service, presentation_id, body_id, markdown_tex
                 elif child.type in ['strong_open', 'em_open']:
                     style_stack.append({'type': child.type, 'start': char_cursor})
                 elif child.type in ['strong_close', 'em_close']:
-                    if not style_stack: continue # Ignore closing tags without an opening one
+                    if not style_stack: continue
                     style = style_stack.pop()
                     formatting_styles.append({
                         'type': style['type'],
                         'range': (style['start'], char_cursor)
                     })
         elif token.type == 'paragraph_close':
-            # Add a newline after each paragraph for compaction, but not for the very last block
             is_last_token = (token == tokens[-1])
             if not is_last_token and char_cursor > 0 and char_cursor > para_start:
                 plain_text_parts.append('\n')
                 char_cursor += 1
             
-            # If this paragraph is a list item, create a bullet request for it
-            if token.level > 0: # token.level indicates nesting in lists
+            if token.level > 0:
                 end_index = char_cursor - 1 if not is_last_token else char_cursor
                 list_requests.append({
                     "createParagraphBullets": {
@@ -218,7 +223,6 @@ def populate_body_with_rich_text(service, presentation_id, body_id, markdown_tex
     plain_text = "".join(plain_text_parts)
     if not plain_text: return
     
-    # Second pass: Create all requests
     all_requests = [{"insertText": {"objectId": body_id, "text": plain_text}}]
     all_requests.extend(list_requests)
 
@@ -236,7 +240,6 @@ def populate_body_with_rich_text(service, presentation_id, body_id, markdown_tex
             }
         })
     
-    # Execute all requests in a single batch
     if len(all_requests) > 0:
         service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": all_requests}).execute()
 
@@ -310,7 +313,6 @@ def main():
     """Main execution flow of the script."""
     logging.info("--- Initializing Script ---")
     
-    # --- One-time setup ---
     slides_service, drive_service, sheets_service = authenticate()
     if not all([slides_service, drive_service, sheets_service]): sys.exit(1)
 
@@ -322,7 +324,6 @@ def main():
     template_layouts_map = get_template_layouts(slides_service, TEMPLATE_ID)
     if not template_layouts_map: sys.exit(1)
 
-    # --- Find and Loop Through Markdown Files ---
     if not os.path.isdir(SOURCE_DIRECTORY):
         logging.critical(f"FATAL: Source directory not found at '{SOURCE_DIRECTORY}'"); sys.exit(1)
         

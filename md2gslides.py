@@ -78,10 +78,9 @@ def check_drive_folder_permissions(drive_service, folder_id):
 
 # --- 3. CORE HELPER FUNCTIONS ---
 
-def get_template_layouts(service, template_id, target_theme_name):
+def get_template_theme_info(service, template_id, target_theme_name):
     """
-    Identifies the most-used master theme matching the target name in the template,
-    and returns a mapping of its layout display names to their IDs.
+    Identifies the most-used master theme and returns its ID and layout mapping.
     """
     try:
         presentation = service.presentations().get(presentationId=template_id).execute()
@@ -97,7 +96,7 @@ def get_template_layouts(service, template_id, target_theme_name):
         
         if not candidate_masters:
             logging.error(f"FATAL: No theme (master) named '{target_theme_name}' found in the template.")
-            return None
+            return None, None
         
         logging.info(f"Found {len(candidate_masters)} master theme(s) named '{target_theme_name}'. Determining the most used one...")
 
@@ -127,7 +126,7 @@ def get_template_layouts(service, template_id, target_theme_name):
 
         if not most_used_master_id:
             logging.error(f"Could not determine a primary master to use for theme '{target_theme_name}'.")
-            return None
+            return None, None
 
         logging.info(f"Selected master theme with ID: {most_used_master_id} as it is the most used.")
         
@@ -140,11 +139,66 @@ def get_template_layouts(service, template_id, target_theme_name):
                     final_layouts[display_name] = layout_id
 
         logging.info("Fetched layouts from the selected master theme in the template presentation.")
-        return final_layouts
+        return most_used_master_id, final_layouts
 
     except HttpError as err:
         logging.error(f"Could not fetch and process template presentation with ID '{template_id}': {err}")
-        return None
+        return None, None
+
+def update_master_slide_text(service, presentation_id, master_id):
+    """Finds and replaces specific text strings on the master slide."""
+    try:
+        logging.info(f"Checking master slide '{master_id}' for text to update...")
+        presentation = service.presentations().get(presentationId=presentation_id).execute()
+        masters = presentation.get('masters', [])
+        
+        target_master = None
+        for master in masters:
+            if master.get('objectId') == master_id:
+                target_master = master
+                break
+        
+        if not target_master:
+            logging.warning(f"Could not find the master slide with ID '{master_id}' in the new presentation.")
+            return
+
+        replacements = {
+            "CONFIDENTIAL designator": "CONFIDENTIAL",
+            "V0000000": "V1.0"
+        }
+        update_requests = []
+        
+        for element in target_master.get('pageElements', []):
+            if 'shape' in element and 'text' in element['shape']:
+                for run in element['shape']['text'].get('textElements', []):
+                    if 'textRun' in run:
+                        element_text = run['textRun']['content'].strip()
+                        if element_text in replacements:
+                            logging.info(f"Found text '{element_text}' to replace on master slide.")
+                            # Request to delete the old text
+                            update_requests.append({
+                                'deleteText': {
+                                    'objectId': element['objectId'],
+                                    'textRange': {'type': 'ALL'}
+                                }
+                            })
+                            # Request to insert the new text
+                            update_requests.append({
+                                'insertText': {
+                                    'objectId': element['objectId'],
+                                    'text': replacements[element_text],
+                                    'insertionIndex': 0
+                                }
+                            })
+        
+        if update_requests:
+            service.presentations().batchUpdate(
+                presentationId=presentation_id, body={"requests": update_requests}
+            ).execute()
+            logging.info("✅ Successfully updated text on the master slide.")
+
+    except HttpError as err:
+        logging.error(f"An error occurred while updating the master slide: {err}")
 
 def load_layout_mapping_from_yaml(file_path="layouts.yaml"):
     """Loads the class-to-layout mapping from a local YAML file."""
@@ -310,26 +364,40 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         ).execute()
         slide_info = response['replies'][0]['createSlide']
         
-        text_requests, subtitle_placeholders, body_id = [], [], None
+        text_requests, body_id, title_id = [], None, None
+        
+        # --- Flexible Placeholder Finding ---
+        all_subtitle_placeholders = []
         
         for element in slide_info.get('pageElements', []):
             placeholder = element.get('shape', {}).get('placeholder', {})
             object_id = element.get('objectId')
             
-            if placeholder.get('type') in ('TITLE', 'CENTERED_TITLE') and title:
-                text_requests.append({"insertText": {"objectId": object_id, "text": title}})
+            if placeholder.get('type') in ('TITLE', 'CENTERED_TITLE'):
+                title_id = object_id
             elif placeholder.get('type') == 'BODY':
                 body_id = object_id
             elif placeholder.get('type') == 'SUBTITLE':
-                subtitle_placeholders.append({'id': object_id, 'y': element.get('transform', {}).get('translateY', 0)})
+                all_subtitle_placeholders.append({'id': object_id, 'y': element.get('transform', {}).get('translateY', 0)})
 
-        if len(subtitle_placeholders) >= 2:
-            subtitle_placeholders.sort(key=lambda p: p['y'])
-            if header_text: text_requests.append({"insertText": {"objectId": subtitle_placeholders[0]['id'], "text": header_text}})
-            if footer_text: text_requests.append({"insertText": {"objectId": subtitle_placeholders[1]['id'], "text": footer_text}})
-        elif len(subtitle_placeholders) == 1 and header_text:
-            text_requests.append({"insertText": {"objectId": subtitle_placeholders[0]['id'], "text": header_text}})
-
+        # Populate Title
+        if title_id and title:
+            text_requests.append({"insertText": {"objectId": title_id, "text": title}})
+        
+        # Populate Header and Footer from available subtitles, leaving the rest for potential body fallback
+        if len(all_subtitle_placeholders) >= 2:
+            all_subtitle_placeholders.sort(key=lambda p: p['y'])
+            header_placeholder = all_subtitle_placeholders.pop(0)
+            footer_placeholder = all_subtitle_placeholders.pop(-1)
+            if header_text: text_requests.append({"insertText": {"objectId": header_placeholder['id'], "text": header_text}})
+            if footer_text: text_requests.append({"insertText": {"objectId": footer_placeholder['id'], "text": footer_text}})
+        
+        # CORRECTED LOGIC: If a BODY placeholder was not found, use a remaining SUBTITLE as a fallback
+        if not body_id and all_subtitle_placeholders:
+             body_id = all_subtitle_placeholders[0]['id']
+             logging.info("   -> No 'BODY' placeholder found, using 'SUBTITLE' as fallback for body content.")
+        
+        # Populate speaker notes
         if slide_data['notes']:
             notes_page_id = slide_info.get("slideProperties", {}).get("notesPage", {}).get("notesProperties", {}).get("speakerNotesObjectId")
             if notes_page_id: text_requests.append({"insertText": {"objectId": notes_page_id, "text": slide_data['notes']}})
@@ -337,8 +405,11 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         if text_requests:
             service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": text_requests}).execute()
 
+        # Populate the main body content using the determined placeholder ID
         if body_id and body_text_md:
             populate_body_with_rich_text(service, presentation_id, body_id, body_text_md)
+        elif not body_id and body_text_md:
+             logging.warning(f"   -> Could not find a 'BODY' or fallback 'SUBTITLE' placeholder for content on slide with class '{layout_class}'. Body content was not inserted.")
 
     except HttpError as err:
         logging.error(f"An error occurred while adding a slide: {err}", exc_info=True)
@@ -360,7 +431,7 @@ def main():
     class_to_layout_map = load_layout_mapping_from_yaml()
     if class_to_layout_map is None: sys.exit(1)
 
-    template_layouts_map = get_template_layouts(slides_service, TEMPLATE_ID, TARGET_THEME_NAME)
+    most_used_master_id, template_layouts_map = get_template_theme_info(slides_service, TEMPLATE_ID, TARGET_THEME_NAME)
     if not template_layouts_map: sys.exit(1)
 
     if not os.path.isdir(SOURCE_DIRECTORY):
@@ -391,7 +462,9 @@ def main():
             if not presentation_id:
                 raise Exception("Failed to copy template and create new presentation.")
             
-            # CORRECTED LOGIC: Get all initial slide IDs
+            # Update the master slide text in the new presentation
+            update_master_slide_text(slides_service, presentation_id, most_used_master_id)
+            
             initial_slide_ids = []
             try:
                 presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
@@ -403,7 +476,6 @@ def main():
                 logging.info(f"  - Creating slide {i+1}/{len(slides)} (class: {slide_data['class']})...")
                 add_slide_to_presentation(slides_service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, header_text, footer_text)
             
-            # CORRECTED LOGIC: Delete all initial slides in one batch
             if initial_slide_ids:
                 logging.info(f"Removing {len(initial_slide_ids)} slides that came from the template...")
                 try:

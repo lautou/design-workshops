@@ -31,20 +31,22 @@ The script must process all files ending in .md from a source directory. For eac
 2. Intelligent Theme Handling: The script must correctly identify and use layouts from a specific theme, even in complex templates. The logic must be:  
    a. Find all themes (masters) in the template that exactly match the TARGET\_THEME\_NAME.  
    b. If duplicates are found, determine the correct one by counting which of these themes is used by the most slides within the template file. This heuristic identifies the "active" or primary theme.  
-   c. Extract the layouts only from this single, most-used theme.  
-3. **Layout Mapping**: The script must read a mapping from a local YAML file named layouts.yaml. This file maps a \_class name to the official "Display name" of a layout within the selected theme.  
-4. **Template Slide Cleanup**: After creating all new slides, the script must delete **ALL** of the initial slides that came from the template copy, ensuring the final presentation is clean.
+   c. Extract the layouts only from this single, most-used theme. The script must return both the layout map and the ID of this master theme.  
+3. **Master Slide Text Replacement**: After copying the presentation, the script must find the selected master slide and perform text replacements on it. Specifically, it must find a text box containing "CONFIDENTIAL designator" and change its text to "CONFIDENTIAL", and another one containing "V0000000" and change its text to "V1.0".  
+4. **Layout Mapping**: The script must read a mapping from a local YAML file named layouts.yaml. This file maps a \_class name to the official "Display name" of a layout within the selected theme.  
+5. **Template Slide Cleanup**: After creating all new slides, the script must delete **ALL** of the initial slides that came from the template copy, ensuring the final presentation is clean.
 
-Markdown Parsing Rules:  
-The script must parse the Markdown content with the following specific rules:
+**Markdown Parsing Rules:**
 
-1. **File Structure**: Slides within a Markdown file are separated by \---.  
-2. **Metadata Blocks**: All metadata is defined within custom comment tags: \_COMMENT\_START\_ and \_COMMENT\_END\_. The parser must be robust enough to handle an optional backslash (\\) before the closing tag (e.g., \\\_COMMENT\_END\_).  
-3. **Global Header/Footer**: The first comment block can contain header: and footer: declarations. This text must be inserted into SUBTITLE placeholders on every slide based on vertical position.  
-4. **Slide-Level Metadata**: Other comment blocks within a slide's content define \_class: and Speaker notes:.  
-5. **Content Parsing**: The first line starting with a markdown heading (\#) is the TITLE. All other text is the BODY.  
-6. **Rich Text Formatting (Body Content)**: The script MUST parse the BODY content for Markdown syntax and apply rich text formatting in Google Slides, including **Bold**, *Italic*, **Bulleted Lists**, and **Nested Lists**. Unnecessary blank lines must be removed.  
-7. **Tag Removal**: All comment blocks and citation tags (\[cite\_start\], \[cite: XX\]) must be removed from the final visible content. The citation tag removal must use a regex composed **only of Unicode character codes**.
+1. Flexible Placeholder Population: The script must be robust in populating slide content. The logic for each slide should be:  
+   a. Identify all placeholders of type TITLE, BODY, and SUBTITLE.  
+   b. The first markdown heading (\#) goes into the TITLE placeholder.  
+   c. The global header and footer text go into the two SUBTITLE placeholders with the highest and lowest vertical positions, respectively.  
+   d. The remaining Markdown content (the body) should be placed in the BODY placeholder.  
+   e. Crucially, if a BODY placeholder is not found on a layout, the script must use a remaining, unused SUBTITLE placeholder as a fallback destination for the body content. If no suitable placeholder is found, it should log a warning.  
+2. **Rich Text Formatting (Body Content)**: The script MUST parse the BODY content for Markdown syntax and apply rich text formatting in Google Slides, including **Bold**, *Italic*, **Bulleted Lists**, and **Nested Lists**. Unnecessary blank lines must be removed.  
+3. **Other Parsing Rules**: The script must handle slide separation (---), custom comment blocks (\_COMMENT\_START\_...\_END\_), and slide-level metadata (\_class:, Speaker notes:).  
+4. **Tag Removal**: All comment blocks and citation tags (\[cite\_start\], \[cite: XX\]) must be removed from the final visible content. The citation tag removal must use a regex composed **only of Unicode character codes**.
 
 **Robustness and Error Handling:**
 

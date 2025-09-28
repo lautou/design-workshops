@@ -153,6 +153,7 @@ def get_template_theme_info(service, template_id, target_theme_name):
                 if 'SUBTITLE' in layout_details['placeholders']:
                     layout_details['placeholders']['SUBTITLE'].sort(key=lambda p: p['y'])
                 if 'BODY' in layout_details['placeholders']:
+                    # Sort body placeholders by X position (left-to-right) for two-column layouts
                     layout_details['placeholders']['BODY'].sort(key=lambda p: p['x'])
 
 
@@ -305,56 +306,201 @@ def parse_markdown_to_slides(processed_content):
     logging.info(f"Markdown file parsed into {len(slides_data)} slides.")
     return slides_data
 
-def populate_body_with_rich_text(service, presentation_id, body_id, markdown_text):
-    if not markdown_text.strip(): return
-    md = MarkdownIt(); tokens = md.parse(markdown_text)
-    plain_text_parts, formatting_styles, list_requests = [], [], []
-    char_cursor, style_stack = 0, []
-    INDENTATION_PER_LEVEL = 18
+def populate_body_with_rich_text(service, presentation_id, object_id, rich_text):
+    requests = []
 
-    for token in tokens:
-        if token.type == 'paragraph_open': para_start = char_cursor
-        elif token.type == 'inline':
-            for child in token.children:
-                if child.type == 'text': plain_text_parts.append(child.content); char_cursor += len(child.content)
-                elif child.type in ['strong_open', 'em_open']: style_stack.append({'type': child.type, 'start': char_cursor})
-                elif child.type in ['strong_close', 'em_close']:
-                    if not style_stack: continue
-                    style = style_stack.pop(); formatting_styles.append({'type': style['type'], 'range': (style['start'], char_cursor)})
-        elif token.type == 'paragraph_close':
-            is_last_token = (token == tokens[-1])
-            if not is_last_token and char_cursor > 0 and char_cursor > para_start: plain_text_parts.append('\n'); char_cursor += 1
-            
-            if token.level > 0:
-                end_index = char_cursor - 1 if not is_last_token else char_cursor
-                text_range = {"type": "FIXED_RANGE", "startIndex": para_start, "endIndex": end_index }
-                
-                list_requests.append({"createParagraphBullets": {"objectId": body_id, "textRange": text_range, "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE"}})
-                
-                nesting_level = token.level - 1
-                if nesting_level > 0:
-                    indent = nesting_level * INDENTATION_PER_LEVEL
-                    list_requests.append({
-                        "updateParagraphStyle": {
-                            "objectId": body_id, "textRange": text_range,
-                            "style": {"indentStart": {"magnitude": indent, "unit": "PT"}},
-                            "fields": "indentStart"
-                        }
-                    })
+    # Split into lines, remove unnecessary blank lines
+    lines = [line for line in rich_text.split('\n') if line.strip()]
 
-    plain_text = "".join(plain_text_parts)
-    if not plain_text: return
+    # Determine the global bullet preset based on the first level-0 list item
+    preset = "BULLET_DISC_CIRCLE_SQUARE"  # Default to unordered
+    for line in lines:
+        leading_spaces = len(line) - len(line.lstrip())
+        if leading_spaces == 0:
+            stripped = line.lstrip()
+            if re.match(r'^\d+\.\s', stripped):
+                preset = "NUMBERED_DIGIT_ALPHA_ROMAN"
+                break
+
+    # Process each line: detect lists, remove markers, process formatting
+    cleaned_lines = []
+    paragraph_ranges = []  # To store (start, end) for each paragraph
+    for line in lines:
+        leading_spaces = len(line) - len(line.lstrip())
+        level = leading_spaces // 4  # Assume 4 spaces per level
+        stripped = line.lstrip()
+
+        is_list = False
+        if re.match(r'^\d+\.\s', stripped):
+            cleaned = re.sub(r'^\d+\.\s', '', stripped)
+            is_list = True
+        elif re.match(r'^[-*]\s', stripped):
+            cleaned = re.sub(r'^[-*]\s', '', stripped)
+            is_list = True
+        else:
+            cleaned = stripped
+
+        # Now remove bold/italic markdown and collect ranges
+        plain, bold_ranges, italic_ranges = remove_formatting(cleaned)
+
+        cleaned_lines.append(plain)
+        # Store the info for this paragraph
+        paragraph_ranges.append({
+            'is_list': is_list,
+            'level': level,
+            'bold_ranges': bold_ranges,
+            'italic_ranges': italic_ranges
+        })
+
+    # Insert the cleaned text
+    text_to_insert = '\n'.join(cleaned_lines)
+    requests.append({
+        "insertText": {
+            "objectId": object_id,
+            "text": text_to_insert
+        }
+    })
+
+    # Apply formatting
+    current_index = 0
+    for i, plain_line in enumerate(cleaned_lines):
+        # Calculate the length of the line including the newline character,
+        # but the final line does not have a trailing newline.
+        line_length_with_newline = len(plain_line) + 1 
+        if i == len(cleaned_lines) - 1:
+            line_length_with_newline -= 1 
+
+        # The range for applying paragraph style or bullets should exclude the trailing newline
+        paragraph_end_index = current_index + line_length_with_newline
+        if i < len(cleaned_lines) - 1:
+            paragraph_end_index -= 1 # Exclude newline for intermediate paragraphs
+        
+        para_info = paragraph_ranges[i]
+
+        # Apply bold
+        for start, end in para_info['bold_ranges']:
+            requests.append({
+                "updateTextStyle": {
+                    "objectId": object_id,
+                    "textRange": {
+                        "type": "FIXED_RANGE",
+                        "startIndex": current_index + start,
+                        "endIndex": current_index + end
+                    },
+                    "style": {"bold": True},
+                    "fields": "bold"
+                }
+            })
+
+        # Apply italic
+        for start, end in para_info['italic_ranges']:
+            requests.append({
+                "updateTextStyle": {
+                    "objectId": object_id,
+                    "textRange": {
+                        "type": "FIXED_RANGE",
+                        "startIndex": current_index + start,
+                        "endIndex": current_index + end
+                    },
+                    "style": {"italic": True},
+                    "fields": "italic"
+                }
+            })
+
+        if para_info['is_list']:
+            # Apply bullets/numbers
+            requests.append({
+                "createParagraphBullets": {
+                    "objectId": object_id,
+                    "textRange": {
+                        "type": "FIXED_RANGE",
+                        "startIndex": current_index,
+                        "endIndex": paragraph_end_index 
+                    },
+                    "bulletPreset": preset
+                }
+            })
+
+            # Apply indents for nesting
+            indent_per_level = 36  # PT
+            hanging = 36  # PT
+            requests.append({
+                "updateParagraphStyle": {
+                    "objectId": object_id,
+                    "textRange": {
+                        "type": "FIXED_RANGE",
+                        "startIndex": current_index,
+                        "endIndex": paragraph_end_index
+                    },
+                    "style": {
+                        "indentFirstLine": {"magnitude": -hanging, "unit": "PT"},
+                        "indentStart": {"magnitude": hanging + para_info['level'] * indent_per_level, "unit": "PT"},
+                        "alignment": "START"
+                    },
+                    "fields": "indentFirstLine,indentStart,alignment"
+                }
+            })
+
+        current_index += line_length_with_newline
+
+    # Execute the batch update
+    try:
+        service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": requests}).execute()
+    except HttpError as err:
+        logging.error(f"An error occurred while populating rich text: {err}", exc_info=True)
+
+def remove_formatting(line):
+    bold_ranges = []
+    italic_ranges = []
     
-    all_requests = [{"insertText": {"objectId": body_id, "text": plain_text}}]
-    all_requests.extend(list_requests)
-
-    for style in formatting_styles:
-        style_update = {};
-        if style['type'] == 'strong_open': style_update['bold'] = True
-        if style['type'] == 'em_open': style_update['italic'] = True
-        all_requests.append({"updateTextStyle": {"objectId": body_id, "textRange": {"type": "FIXED_RANGE", "startIndex": style['range'][0], "endIndex": style['range'][1]}, "style": style_update, "fields": ",".join(style_update.keys())}})
+    # Use re.finditer and a loop that recalculates offsets correctly after modification
+    temp_plain = line
+    temp_offset = 0
     
-    if len(all_requests) > 0: service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": all_requests}).execute()
+    # Handle bold
+    bold_matches = list(re.finditer(r'\*\*(.*?)\*\*', temp_plain))
+    for m in bold_matches:
+        start_index = m.start() - temp_offset
+        end_index = m.end() - temp_offset
+        
+        # Adjust content start/end based on previous removals
+        content_start = start_index 
+        content_end = start_index + len(m.group(1))
+        bold_ranges.append((content_start, content_end))
+        
+        # Rebuild the string without the delimiters
+        temp_plain = temp_plain[:start_index] + m.group(1) + temp_plain[end_index:]
+        
+        # Calculate how much was removed to adjust subsequent match indices
+        removed_length = 4 # for the two **
+        temp_offset += removed_length
+
+    plain = temp_plain
+    
+    # Handle italic
+    temp_plain = plain
+    temp_offset = 0
+    
+    italic_matches = list(re.finditer(r'\*(.*?)\*', temp_plain))
+    for m in italic_matches:
+        start_index = m.start() - temp_offset
+        end_index = m.end() - temp_offset
+
+        # Adjust content start/end based on previous removals
+        content_start = start_index
+        content_end = start_index + len(m.group(1))
+        italic_ranges.append((content_start, content_end))
+        
+        # Rebuild the string without the delimiters
+        temp_plain = temp_plain[:start_index] + m.group(1) + temp_plain[end_index:]
+        
+        # Calculate how much was removed to adjust subsequent match indices
+        removed_length = 2 # for the two *
+        temp_offset += removed_length
+
+    plain = temp_plain
+
+    return plain, bold_ranges, italic_ranges
 
 def add_slide_to_presentation(service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, page_size, header_text, footer_text):
     """Creates a slide using placeholder mappings and populates it with parsed content."""
@@ -370,6 +516,10 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         new_ids = {}
         assigned_placeholder_ids = set()
         layout_placeholders = layout_details.get('placeholders', {})
+        
+        # Body content parts initialized
+        part1_text = ""
+        part2_text = ""
         
         logging.debug(f"Processing slide with layout '{layout_name}' (class: {layout_class})")
         
@@ -389,6 +539,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         elif len(all_subtitle_phs) == 1:
             candidate = all_subtitle_phs[0]
             title_ph_list = (layout_placeholders.get('TITLE', []) or layout_placeholders.get('CENTERED_TITLE', []))
+            # If no title, treat any single subtitle as main content.
             title_y = title_ph_list[0]['y'] if title_ph_list else candidate['y'] + 1 
             
             logging.debug(f"  -> Single SUBTITLE candidate: id={candidate['id']}, y={candidate['y']}. Title y={title_y}")
@@ -433,36 +584,37 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         # Special handling for two-column body layouts
         if len(body_phs) == 2 and slide_data['body']:
             logging.debug("  -> Detected Two-Column Body Layout.")
-            # Split the body content by the first bolded line
+            # Restore the working regex to split by a bold line preceded and followed by a newline
             body_parts = re.split(r'(\n\s*\*\*.*?\*\*\s*\n)', slide_data['body'], 1)
             
             if len(body_parts) >= 3:
-                # Combine the splitter with the second part
+                # Part 0 is content before the splitter (left column)
+                # Part 1 is the splitter itself (\n**Heading**\n)
+                # Part 2 is the content after the splitter
                 part1_text = body_parts[0].strip()
                 part2_text = (body_parts[1] + body_parts[2]).strip()
-                
-                new_ids['body1'] = str(uuid.uuid4())
-                placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
-                
-                new_ids['body2'] = str(uuid.uuid4())
-                placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[1]['index']}, 'objectId': new_ids['body2']})
                 logging.debug(f"  -> Split body content into two columns.")
 
             else: # Fallback if no splitter is found
                 part1_text = slide_data['body'].strip()
-                part2_text = ""
-                new_ids['body1'] = str(uuid.uuid4())
-                placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
+                # part2_text remains ""
                 logging.debug("  -> No splitter found, placing all body content in the left column.")
+            
+            # Map both body placeholders
+            new_ids['body1'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
+            
+            new_ids['body2'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[1]['index']}, 'objectId': new_ids['body2']})
         
         # Standard body handling
         elif body_phs and slide_data['body']:
             new_ids['body1'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
             part1_text = slide_data['body']
-            part2_text = ""
+            # part2_text remains ""
             logging.debug("  -> Assigned body to single BODY placeholder.")
-        
+            
         # Fallback for body content
         elif not body_phs and slide_data['body'] and main_subtitle_candidates:
             body_fallback_ph = main_subtitle_candidates.pop(0)
@@ -470,12 +622,9 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': body_fallback_ph['index']}, 'objectId': new_ids['body1']})
             assigned_placeholder_ids.add(body_fallback_ph['id'])
             part1_text = slide_data['body']
-            part2_text = ""
+            # part2_text remains ""
             logging.debug(f"  -> Assigned body to fallback MAIN placeholder {body_fallback_ph['id']}")
             logging.info(f"   -> No 'BODY' placeholder found, using a 'SUBTITLE' as fallback.")
-        else:
-            part1_text = ""
-            part2_text = ""
             
         create_slide_request = {"createSlide": {"objectId": str(uuid.uuid4()), "slideLayoutReference": {"layoutId": layout_details['id']}, "placeholderIdMappings": placeholder_mappings}}
         response = service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": [create_slide_request]}).execute()
@@ -600,4 +749,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

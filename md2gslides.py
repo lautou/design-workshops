@@ -14,7 +14,7 @@ from markdown_it import MarkdownIt
 # --- 1. SCRIPT SETUP: LOGGING AND CONFIGURATION ---
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG, # CHANGED TO DEBUG FOR TROUBLESHOOTING
     format="%(asctime)s [%(levelname)s] - %(message)s",
     handlers=[
         logging.FileHandler("generation.log"),
@@ -323,25 +323,42 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
     try:
         placeholder_mappings = []
         new_ids = {}
+        assigned_placeholder_ids = set()
         layout_placeholders = layout_details.get('placeholders', {})
         
-        # --- Classify SUBTITLE placeholders ---
-        all_subtitle_phs = sorted(layout_placeholders.get('SUBTITLE', []), key=lambda p: p['y'])
+        logging.debug(f"Processing slide with layout '{layout_name}' (class: {layout_class})")
+        
+        # --- Role Identification ---
+        page_height = page_size.get('height', {}).get('magnitude', 0) if page_size else 0
+        header_threshold = page_height * 0.15
+        footer_threshold = page_height * 0.85
+
+        all_subtitle_phs = list(layout_placeholders.get('SUBTITLE', []))
         
         header_ph, footer_ph = None, None
         main_subtitle_candidates = []
         
+        logging.debug(f"  Layout '{layout_name}': Found {len(all_subtitle_phs)} SUBTITLE placeholder(s). Page height: {page_height}")
+
         if len(all_subtitle_phs) >= 2:
-            # The highest is the header, the lowest is the footer.
             header_ph = all_subtitle_phs.pop(0)
             footer_ph = all_subtitle_phs.pop(-1)
-            # Anything left in the middle is a main subtitle candidate
             main_subtitle_candidates = all_subtitle_phs
-        else:
-            # If there's only one or zero, it's for main content, not header/footer.
-            main_subtitle_candidates = all_subtitle_phs
+            logging.debug(f"  -> Classified as Multi-Subtitle Layout. Header: {header_ph['id']}, Footer: {footer_ph['id']}")
+        elif len(all_subtitle_phs) == 1:
+            candidate = all_subtitle_phs[0]
+            title_ph_list = (layout_placeholders.get('TITLE', []) or layout_placeholders.get('CENTERED_TITLE', []))
+            title_y = title_ph_list[0]['y'] if title_ph_list else page_height  # Default to bottom if no title
+            
+            logging.debug(f"  -> Single SUBTITLE candidate: id={candidate['id']}, y={candidate['y']}. Title y={title_y}")
+            if candidate['y'] < title_y:
+                header_ph = candidate
+                logging.debug("     ...classified as HEADER (above title).")
+            else:
+                main_subtitle_candidates.append(candidate)
+                logging.debug("     ...classified as MAIN CONTENT (below or at title level).")
         
-        # --- Assign content based on classification ---
+        # --- Content Assignment ---
         title_ph = (layout_placeholders.get('TITLE', []) or layout_placeholders.get('CENTERED_TITLE', []))
         body_ph = layout_placeholders.get('BODY', [])
 
@@ -349,29 +366,42 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             new_ids['title'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': title_ph[0]['type'], 'index': title_ph[0]['index']}, 'objectId': new_ids['title']})
 
-        if header_text and header_ph:
-            new_ids['header'] = str(uuid.uuid4())
-            placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': header_ph['index']}, 'objectId': new_ids['header']})
-
-        final_footer_text = footer_text if footer_text else "Red Hat Consulting"
-        if final_footer_text and footer_ph:
-            new_ids['footer'] = str(uuid.uuid4())
-            placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': footer_ph['index']}, 'objectId': new_ids['footer']})
-
+        # Priority 1: Slide-specific subtitle
         if slide_data['subtitle'] and main_subtitle_candidates:
             subtitle_ph = main_subtitle_candidates.pop(0)
             new_ids['subtitle'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': subtitle_ph['index']}, 'objectId': new_ids['subtitle']})
+            assigned_placeholder_ids.add(subtitle_ph['id'])
+            logging.debug(f"  -> Assigned slide subtitle to MAIN placeholder {subtitle_ph['id']}")
 
-        # --- Handle body content and fallbacks ---
-        if body_ph and slide_data['body']:
-            new_ids['body'] = str(uuid.uuid4())
-            placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_ph[0]['index']}, 'objectId': new_ids['body']})
-        elif slide_data['body'] and main_subtitle_candidates:
-            body_fallback_ph = main_subtitle_candidates.pop(0)
-            new_ids['body'] = str(uuid.uuid4())
-            placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': body_fallback_ph['index']}, 'objectId': new_ids['body']})
-            logging.info(f"   -> No 'BODY' placeholder found, using a 'SUBTITLE' as fallback.")
+        # Priority 2: Global Header
+        if header_text and header_ph and header_ph['id'] not in assigned_placeholder_ids:
+            new_ids['header'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': header_ph['index']}, 'objectId': new_ids['header']})
+            assigned_placeholder_ids.add(header_ph['id'])
+            logging.debug(f"  -> Assigned global header to HEADER placeholder {header_ph['id']}")
+
+        # Priority 3: Global Footer
+        final_footer_text = footer_text if footer_text else "Red Hat Consulting"
+        if final_footer_text and footer_ph and footer_ph['id'] not in assigned_placeholder_ids:
+            new_ids['footer'] = str(uuid.uuid4())
+            placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': footer_ph['index']}, 'objectId': new_ids['footer']})
+            assigned_placeholder_ids.add(footer_ph['id'])
+            logging.debug(f"  -> Assigned global footer to FOOTER placeholder {footer_ph['id']}")
+
+        # Priority 4: Body and its fallback
+        if slide_data['body']:
+            if body_ph:
+                new_ids['body'] = str(uuid.uuid4())
+                placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_ph[0]['index']}, 'objectId': new_ids['body']})
+                logging.debug("  -> Assigned body to BODY placeholder.")
+            elif main_subtitle_candidates:
+                body_fallback_ph = main_subtitle_candidates.pop(0)
+                new_ids['body'] = str(uuid.uuid4())
+                placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': body_fallback_ph['index']}, 'objectId': new_ids['body']})
+                assigned_placeholder_ids.add(body_fallback_ph['id'])
+                logging.debug(f"  -> Assigned body to fallback MAIN placeholder {body_fallback_ph['id']}")
+                logging.info(f"   -> No 'BODY' placeholder found, using a 'SUBTITLE' as fallback.")
         
         create_slide_request = {"createSlide": {"objectId": str(uuid.uuid4()), "slideLayoutReference": {"layoutId": layout_details['id']}, "placeholderIdMappings": placeholder_mappings}}
         response = service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": [create_slide_request]}).execute()
@@ -397,7 +427,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
 
         if 'body' in new_ids and slide_data['body']:
             populate_body_with_rich_text(service, presentation_id, new_ids['body'], slide_data['body'])
-        elif not 'body' in new_ids and slide_data['body']:
+        elif not 'body' in new_ids and slide_data['body'] and not main_subtitle_candidates:
              logging.warning(f"   -> No suitable placeholder found for body content on slide with class '{layout_class}'. Body was not inserted.")
 
     except HttpError as err:

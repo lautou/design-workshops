@@ -39,7 +39,8 @@ Please generate the following files:
 
 **Markdown Parsing Rules:**
 
-1. **Advanced Placeholder Population Logic**: The script must handle SUBTITLE placeholders with a nuanced, two-step logic to correctly assign slide-specific subtitles, global headers, and global footers.  
+1. **Marpit Front-Matter Handling**: The script MUST identify and remove the Marpit YAML front-matter (the content between the first two \--- separators) *before* splitting the file into slides. This prevents an unwanted, blank first slide from being created.  
+2. **Advanced Placeholder Population Logic**: The script must handle SUBTITLE placeholders with a nuanced, two-step logic to correctly assign slide-specific subtitles, global headers, and global footers.  
    Step 1: Role Identification  
    For each layout, the script must first analyze the SUBTITLE placeholders to determine their potential role.  
    * If a layout has **two or more** SUBTITLE placeholders, their roles are determined by vertical order: the topmost is the header, the bottommost is the footer, and any in between are for main\_content.  
@@ -51,9 +52,9 @@ Please generate the following files:
    2. **Global Header**: Second, if a placeholder was identified as a header and it has *not* already been assigned content, assign the global header: text to it.  
    3. **Global Footer**: Third, if a placeholder was identified as a footer and it has *not* already been assigned content, assign the global footer: text to it.  
    4. **Body Fallback**: Finally, use any remaining, unassigned main\_content subtitle placeholders as a fallback destination for the main body content if a dedicated BODY placeholder is not found. If no suitable placeholder exists, log a warning.  
-2. **Rich Text Formatting (Body Content)**: The script MUST parse the BODY content for Markdown syntax and apply rich text formatting in Google Slides, including **Bold**, *Italic*, **Bulleted Lists**, and **Nested Lists**. Unnecessary blank lines must be removed.  
-3. **Other Parsing Rules**: The script must handle slide separation (---), custom comment blocks (\_COMMENT\_START\_...\_END\_), and slide-level metadata (\_class:, Speaker notes:).  
-4. **Tag Removal**: All comment blocks and citation tags (cite\_start  
+3. **Rich Text Formatting (Body Content)**: The script MUST parse the BODY content for Markdown syntax and apply rich text formatting in Google Slides, including **Bold**, *Italic*, **Bulleted Lists**, and **Nested Lists**. Unnecessary blank lines must be removed.  
+4. **Other Parsing Rules**: The script must handle slide separation (---), custom comment blocks (\_COMMENT\_START\_...\_END\_), and slide-level metadata (\_class:, Speaker notes:).  
+5. **Tag Removal**: All comment blocks and citation tags (cite\_start  
    ,cite:XX  
    ) must be removed from the final visible content. The citation tag removal must use a regex composed **only of Unicode character codes**.
 
@@ -69,4 +70,4 @@ Please generate the following files:
 * **README.md**: Must be comprehensive, explaining all features and a setup guide based on a git workflow. It should instruct the user to clone, run install.sh, and configure the layouts.yaml and .env files (including the new TARGET\_THEME\_NAME and LOG\_LEVEL variables).  
 * **install.sh**: Must automate the creation of a virtual environment, installation of dependencies, and creation of config files from examples.  
 * **requirements.txt**: Must include PyYAML and all other necessary packages.  
-* \*\*.env.
+* **.env.example**: Must include placeholders for TARGET\_THEME\_NAME and LOG\_LEVEL.

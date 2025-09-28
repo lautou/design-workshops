@@ -250,9 +250,20 @@ def parse_slide_content(slide_text):
     return title, subtitle, body
 
 def parse_markdown_to_slides(processed_content):
+    """
+    Parses the full markdown file content into a list of slide data dictionaries,
+    correctly handling and removing Marpit front-matter.
+    """
     slides_data = []
-    content_without_header = re.sub(r'_COMMENT_START_(.*?)_COMMENT_END_', '', processed_content, count=1, flags=re.DOTALL)
-    raw_slides = content_without_header.split("\n---\n")
+    
+    # Remove the global header/footer comment block first
+    content_without_globals = re.sub(r'_COMMENT_START_(.*?)_COMMENT_END_', '', processed_content, count=1, flags=re.DOTALL)
+    
+    # Remove the Marpit YAML front-matter
+    content_without_marpit = re.sub(r'^\s*---\s*.*?---\s*', '', content_without_globals, flags=re.DOTALL).strip()
+    
+    raw_slides = content_without_marpit.split("\n---\n")
+    
     for slide_text in raw_slides:
         if not slide_text.strip(): continue
         speaker_notes, layout_class = "", "default"

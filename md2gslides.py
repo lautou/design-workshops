@@ -61,7 +61,6 @@ def check_drive_folder_permissions(drive_service, folder_id):
     """Verifies that the service account can create files in the target folder."""
     try:
         logging.info(f"Verifying permissions for target folder ID: {folder_id}...")
-        # Add supportsAllDrives=True to work with Shared Drives
         folder_metadata = drive_service.files().get(
             fileId=folder_id, fields='capabilities', supportsAllDrives=True
         ).execute()
@@ -124,7 +123,6 @@ def copy_template_presentation(drive_service, template_id, new_title, folder_id)
     try:
         logging.info(f"Copying template to create new presentation '{new_title}'...")
         copy_body = {'name': new_title, 'parents': [folder_id]}
-        # Add supportsAllDrives=True to work with Shared Drives
         copied_file = drive_service.files().copy(
             fileId=template_id, body=copy_body, supportsAllDrives=True
         ).execute()
@@ -169,12 +167,14 @@ def parse_markdown_to_slides(processed_content):
         if notes_match:
             speaker_notes = notes_match.group(1).strip()
             slide_text = slide_text.replace(notes_match.group(0), "")
-        class_match = re.search(r'_COMMENT_START_\s*_class:\s*([\w\s-]+)_COMMENT_END_', slide_text, re.IGNORECASE)
+        
+        # CORRECTED REGEX: Made the backslash optional with `\\?`
+        class_match = re.search(r'_COMMENT_START_\s*_class:\s*([\w\s-]+)\\?_COMMENT_END_', slide_text, re.IGNORECASE)
         if class_match:
             layout_class = class_match.group(1).strip().split()[0]
             slide_text = slide_text.replace(class_match.group(0), "")
         
-        slide_content = re.sub(r'_COMMENT_START_.*?_COMMENT_END_', '', slide_text, flags=re.DOTALL).strip()
+        slide_content = re.sub(r'_COMMENT_START_.*?\\?_COMMENT_END_', '', slide_text, flags=re.DOTALL).strip()
         slides_data.append({"content": slide_content, "notes": speaker_notes, "class": layout_class})
     logging.info(f"Markdown file parsed into {len(slides_data)} slides.")
     return slides_data
@@ -367,6 +367,7 @@ def main():
 
             for i, slide_data in enumerate(slides):
                 logging.info(f"  - Creating slide {i+1}/{len(slides)} (class: {slide_data['class']})...")
+                # CORRECTED LINE: Use 'slides_service' instead of 'service'
                 add_slide_to_presentation(slides_service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, header_text, footer_text)
             
             if initial_slide_id:

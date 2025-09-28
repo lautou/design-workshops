@@ -29,11 +29,11 @@ try:
     TEMPLATE_ID = os.environ['TEMPLATE_PRESENTATION_ID']
     SOURCE_DIRECTORY = os.environ['SOURCE_DIRECTORY']
     OUTPUT_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID']
+    TARGET_THEME_NAME = os.environ['TARGET_THEME_NAME']
 except KeyError as e:
     logging.critical(f"FATAL: Missing required configuration in .env file: {e}")
     sys.exit(1)
 
-# Scopes no longer include spreadsheets
 SCOPES = [
     "https://www.googleapis.com/auth/presentations",
     "https://www.googleapis.com/auth/drive",
@@ -78,19 +78,73 @@ def check_drive_folder_permissions(drive_service, folder_id):
 
 # --- 3. CORE HELPER FUNCTIONS ---
 
-def get_template_layouts(service, template_id):
-    """Gets all layout names and IDs from the template presentation."""
+def get_template_layouts(service, template_id, target_theme_name):
+    """
+    Identifies the most-used master theme matching the target name in the template,
+    and returns a mapping of its layout display names to their IDs.
+    """
     try:
         presentation = service.presentations().get(presentationId=template_id).execute()
-        layouts = {
-            layout.get("layoutProperties", {}).get("displayName"): layout.get("objectId")
-            for layout in presentation.get("layouts", [])
-            if layout.get("layoutProperties", {}).get("displayName")
-        }
-        logging.info("Fetched layouts from the template presentation.")
-        return layouts
+        
+        slides = presentation.get('slides', [])
+        masters = presentation.get('masters', [])
+        all_layouts = presentation.get('layouts', [])
+        
+        candidate_masters = [
+            m for m in masters 
+            if m.get('masterProperties', {}).get('displayName') == target_theme_name
+        ]
+        
+        if not candidate_masters:
+            logging.error(f"FATAL: No theme (master) named '{target_theme_name}' found in the template.")
+            return None
+        
+        logging.info(f"Found {len(candidate_masters)} master theme(s) named '{target_theme_name}'. Determining the most used one...")
+
+        master_usage_count = {m.get('objectId'): 0 for m in candidate_masters}
+        
+        for slide in slides:
+            layout_id = slide.get('slideProperties', {}).get('layoutObjectId')
+            if not layout_id: continue
+            
+            parent_master_id = None
+            for layout in all_layouts:
+                if layout.get('objectId') == layout_id:
+                    parent_master_id = layout.get('layoutProperties', {}).get('masterObjectId')
+                    break
+            
+            if parent_master_id in master_usage_count:
+                master_usage_count[parent_master_id] += 1
+        
+        logging.info(f"Usage count for candidate masters: {master_usage_count}")
+        
+        most_used_master_id = None
+        if any(master_usage_count.values()):
+             most_used_master_id = max(master_usage_count, key=master_usage_count.get)
+        elif candidate_masters:
+             logging.warning(f"No slides in the template actually use the '{target_theme_name}' theme. Defaulting to the first one found.")
+             most_used_master_id = candidate_masters[0].get('objectId')
+
+        if not most_used_master_id:
+            logging.error(f"Could not determine a primary master to use for theme '{target_theme_name}'.")
+            return None
+
+        logging.info(f"Selected master theme with ID: {most_used_master_id} as it is the most used.")
+        
+        final_layouts = {}
+        for layout in all_layouts:
+            if layout.get('layoutProperties', {}).get('masterObjectId') == most_used_master_id:
+                display_name = layout.get('layoutProperties', {}).get('displayName')
+                layout_id = layout.get('objectId')
+                if display_name and layout_id:
+                    final_layouts[display_name] = layout_id
+
+        logging.info("Fetched layouts from the selected master theme in the template presentation.")
+        return final_layouts
+
     except HttpError as err:
-        logging.error(f"Could not fetch template presentation with ID '{template_id}': {err}"); return None
+        logging.error(f"Could not fetch and process template presentation with ID '{template_id}': {err}")
+        return None
 
 def load_layout_mapping_from_yaml(file_path="layouts.yaml"):
     """Loads the class-to-layout mapping from a local YAML file."""
@@ -306,7 +360,7 @@ def main():
     class_to_layout_map = load_layout_mapping_from_yaml()
     if class_to_layout_map is None: sys.exit(1)
 
-    template_layouts_map = get_template_layouts(slides_service, TEMPLATE_ID)
+    template_layouts_map = get_template_layouts(slides_service, TEMPLATE_ID, TARGET_THEME_NAME)
     if not template_layouts_map: sys.exit(1)
 
     if not os.path.isdir(SOURCE_DIRECTORY):
@@ -337,18 +391,30 @@ def main():
             if not presentation_id:
                 raise Exception("Failed to copy template and create new presentation.")
             
+            # CORRECTED LOGIC: Get all initial slide IDs
+            initial_slide_ids = []
             try:
-                initial_slide_id = slides_service.presentations().get(presentationId=presentation_id).execute()['slides'][0]['objectId']
-            except (HttpError, KeyError, IndexError):
-                initial_slide_id = None
+                presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
+                initial_slide_ids = [slide.get('objectId') for slide in presentation.get('slides', [])]
+            except HttpError as e:
+                logging.warning(f"Could not get initial slide IDs to delete. Error: {e}")
 
             for i, slide_data in enumerate(slides):
                 logging.info(f"  - Creating slide {i+1}/{len(slides)} (class: {slide_data['class']})...")
                 add_slide_to_presentation(slides_service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, header_text, footer_text)
             
-            if initial_slide_id:
-                slides_service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": [{"deleteObject": {"objectId": initial_slide_id}}]}).execute()
-                logging.info("Removed initial template slide.")
+            # CORRECTED LOGIC: Delete all initial slides in one batch
+            if initial_slide_ids:
+                logging.info(f"Removing {len(initial_slide_ids)} slides that came from the template...")
+                try:
+                    delete_requests = [{"deleteObject": {"objectId": slide_id}} for slide_id in initial_slide_ids]
+                    slides_service.presentations().batchUpdate(
+                        presentationId=presentation_id,
+                        body={"requests": delete_requests}
+                    ).execute()
+                    logging.info("Removed all initial template slides.")
+                except HttpError as err:
+                    logging.warning(f"Could not remove all initial template slides. They may need to be removed manually. Error: {err}")
 
             presentation_url = f"https://docs.google.com/presentation/d/{presentation_id}/"
             logging.info(f"✅ Successfully finished processing {os.path.basename(md_file_path)}")

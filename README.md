@@ -7,7 +7,9 @@ It's designed for batch processing, allowing you to convert an entire directory 
 ## **Features**
 
 * **Batch Processing**: Converts an entire directory of .md files into separate Google Slides presentations.  
-* **Template-Based**: Enforces brand consistency by creating all presentations from a master Google Slides template.  
+* **Intelligent Template Usage**:  
+  * Enforces brand consistency by creating all presentations from a master Google Slides template.  
+  * **Handles complex templates** with multiple or duplicate themes by intelligently selecting the most-used theme as the source for layouts.  
 * **Local Layout Mapping**: Maps a \_class tag in Markdown to a specific slide layout from your template via a simple, local layouts.yaml file.  
 * **Rich Text Formatting**: Automatically converts Markdown syntax into formatted text on the slides, including:  
   * **Bold** and *Italic* text.  
@@ -53,7 +55,7 @@ Follow these steps to set up the environment and configure the tool. The process
 
 3. **Configure Your Project**:  
    * **Service Account**: Place your downloaded service-account.json key file into the project's root directory.  
-   * **.env file**: Open the newly created .env file and fill in the TEMPLATE\_PRESENTATION\_ID and OUTPUT\_FOLDER\_ID with the IDs from your assets in the Shared Drive.  
+   * **.env file**: Open the newly created .env file and fill in your TEMPLATE\_PRESENTATION\_ID, OUTPUT\_FOLDER\_ID, and the TARGET\_THEME\_NAME.  
    * **layouts.yaml**: Open layouts.yaml and adjust the mappings to match the "Display names" of the layouts in your specific Google Slides template.
 
 ## **Usage**
@@ -64,6 +66,4 @@ Follow these steps to set up the environment and configure the tool. The process
    ./generate.sh
 
    \# Or run the Python script directly (ensure venv is active)  
-   \# python3 md2gslides.py
-
-3. **Check the Output**: The script will log its progress to the console and to a generation.log file. Upon successful completion, it will print a link to each generated presentation.
+   \# python3 md2gslides.py  

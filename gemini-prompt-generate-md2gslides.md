@@ -13,8 +13,8 @@ Please generate the following files:
 
 ### **Detailed Requirements for md2gslides.py**
 
-Core Functionality:  
-The script must process all files ending in .md from a source directory. For each Markdown file, it will create a new, separate Google Slides presentation in a specified Google Drive folder, which MUST be located within a Shared Drive.  
+**Core Functionality:** The script must process all files ending in .md from a source directory. For each Markdown file, it will create a new, separate Google Slides presentation in a specified Google Drive folder, which MUST be located within a Shared Drive.
+
 **Authentication and Configuration:**
 
 1. **Authentication**: The script MUST use a non-interactive Google Cloud **Service Account** for all API authentication.  
@@ -23,12 +23,13 @@ The script must process all files ending in .md from a source directory. For eac
    * TEMPLATE\_PRESENTATION\_ID: The ID of the Google Slides template to use.  
    * SOURCE\_DIRECTORY: The path to the directory containing the source .md files.  
    * OUTPUT\_FOLDER\_ID: The ID of the Google Drive folder (inside a Shared Drive) where generated presentations will be saved.  
-   * TARGET\_THEME\_NAME: The exact "Display name" of the theme (master) to use from the template.
+   * TARGET\_THEME\_NAME: The exact "Display name" of the theme (master) to use from the template.  
+   * **LOG\_LEVEL**: A string to control the logging verbosity (e.g., "DEBUG", "INFO"). The script must default to "INFO" if the variable is missing or invalid.
 
 **Templating and Layout:**
 
 1. **Template**: Each new presentation must be created by making a copy of the presentation specified by TEMPLATE\_PRESENTATION\_ID.  
-2. Intelligent Theme Handling: The script must correctly identify and use layouts from a specific theme, even in complex templates. The logic must be:  
+2. **Intelligent Theme Handling**: The script must correctly identify and use layouts from a specific theme, even in complex templates. The logic must be:  
    a. Find all themes (masters) in the template that exactly match the TARGET\_THEME\_NAME.  
    b. If duplicates are found, determine the correct one by counting which of these themes is used by the most slides within the template file. This heuristic identifies the "active" or primary theme.  
    c. Extract the layouts only from this single, most-used theme. The script must return both the layout map and the ID of this master theme.  
@@ -38,27 +39,34 @@ The script must process all files ending in .md from a source directory. For eac
 
 **Markdown Parsing Rules:**
 
-1. Flexible Placeholder Population: The script must be robust in populating slide content. The logic for each slide should be:  
-   a. Identify all placeholders of type TITLE, BODY, and SUBTITLE.  
-   b. The first markdown heading (\#) goes into the TITLE placeholder.  
-   c. The global header and footer text go into the two SUBTITLE placeholders with the highest and lowest vertical positions, respectively.  
-   d. The remaining Markdown content (the body) should be placed in the BODY placeholder.  
-   e. Crucially, if a BODY placeholder is not found on a layout, the script must use a remaining, unused SUBTITLE placeholder as a fallback destination for the body content. If no suitable placeholder is found, it should log a warning.  
+1. **Advanced Placeholder Population Logic**: The script must handle SUBTITLE placeholders with a nuanced, two-step logic to correctly assign slide-specific subtitles, global headers, and global footers.  
+   Step 1: Role Identification  
+   For each layout, the script must first analyze the SUBTITLE placeholders to determine their potential role.  
+   * If a layout has **two or more** SUBTITLE placeholders, their roles are determined by vertical order: the topmost is the header, the bottommost is the footer, and any in between are for main\_content.  
+   * If a layout has **only one** SUBTITLE placeholder, its role is determined by its position *relative to the TITLE placeholder*. If the subtitle is vertically above the title, it is a header. Otherwise, it is for main\_content.
+
+   Step 2: Prioritized Content AssignmentThe script must then assign content to these roles in a strict order of priority, using a tracking mechanism to ensure a placeholder is only used once.
+
+   1. **Slide-Specific Subtitle**: First, if the Markdown for a slide contains \#\# Subtitle content, assign it to an available main\_content subtitle placeholder. This is the highest priority.  
+   2. **Global Header**: Second, if a placeholder was identified as a header and it has *not* already been assigned content, assign the global header: text to it.  
+   3. **Global Footer**: Third, if a placeholder was identified as a footer and it has *not* already been assigned content, assign the global footer: text to it.  
+   4. **Body Fallback**: Finally, use any remaining, unassigned main\_content subtitle placeholders as a fallback destination for the main body content if a dedicated BODY placeholder is not found. If no suitable placeholder exists, log a warning.  
 2. **Rich Text Formatting (Body Content)**: The script MUST parse the BODY content for Markdown syntax and apply rich text formatting in Google Slides, including **Bold**, *Italic*, **Bulleted Lists**, and **Nested Lists**. Unnecessary blank lines must be removed.  
 3. **Other Parsing Rules**: The script must handle slide separation (---), custom comment blocks (\_COMMENT\_START\_...\_END\_), and slide-level metadata (\_class:, Speaker notes:).  
-4. **Tag Removal**: All comment blocks and citation tags (\[cite\_start\], \[cite: XX\]) must be removed from the final visible content. The citation tag removal must use a regex composed **only of Unicode character codes**.
+4. **Tag Removal**: All comment blocks and citation tags (cite\_start  
+   ,cite:XX  
+   ) must be removed from the final visible content. The citation tag removal must use a regex composed **only of Unicode character codes**.
 
 **Robustness and Error Handling:**
 
 1. **API Scopes & Shared Drive**: Use the .../auth/drive scope and include supportsAllDrives=True in all relevant Drive API calls.  
 2. **Pre-Checks**: Verify the source directory exists and the script has permissions for the output folder.  
 3. **Graceful Handling**: Handle cases where no .md files are found, and continue processing the next file if one fails.  
-4. **Logging**: Implement comprehensive logging to both console and a generation.log file.
+4. **Logging**: Implement comprehensive, configurable logging to both console and a generation.log file, controlled by the LOG\_LEVEL environment variable.
 
 ### **Detailed Requirements for README.md and Other Files**
 
-* **README.md**: Must be comprehensive, explaining all features and a setup guide based on a git workflow. It should instruct the user to clone, run install.sh, and configure the layouts.yaml and .env files (including the new TARGET\_THEME\_NAME).  
+* **README.md**: Must be comprehensive, explaining all features and a setup guide based on a git workflow. It should instruct the user to clone, run install.sh, and configure the layouts.yaml and .env files (including the new TARGET\_THEME\_NAME and LOG\_LEVEL variables).  
 * **install.sh**: Must automate the creation of a virtual environment, installation of dependencies, and creation of config files from examples.  
 * **requirements.txt**: Must include PyYAML and all other necessary packages.  
-* **.env.example**: Must include a placeholder for TARGET\_THEME\_NAME.  
-* **layouts.yaml.example**: An example mapping file.
+* \*\*.env.

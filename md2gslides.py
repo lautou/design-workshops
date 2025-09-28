@@ -13,16 +13,27 @@ from markdown_it import MarkdownIt
 
 # --- 1. SCRIPT SETUP: LOGGING AND CONFIGURATION ---
 
+load_dotenv()
+
+# Set up tunable logging
+LOG_LEVEL_STR = os.environ.get('LOG_LEVEL', 'INFO').upper()
+LOG_LEVELS = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL
+}
+log_level = LOG_LEVELS.get(LOG_LEVEL_STR, logging.INFO)
+
 logging.basicConfig(
-    level=logging.DEBUG, # CHANGED TO DEBUG FOR TROUBLESHOOTING
+    level=log_level,
     format="%(asctime)s [%(levelname)s] - %(message)s",
     handlers=[
         logging.FileHandler("generation.log"),
         logging.StreamHandler(sys.stdout)
     ]
 )
-
-load_dotenv()
 
 try:
     SERVICE_ACCOUNT_FILE = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
@@ -329,16 +340,12 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         logging.debug(f"Processing slide with layout '{layout_name}' (class: {layout_class})")
         
         # --- Role Identification ---
-        page_height = page_size.get('height', {}).get('magnitude', 0) if page_size else 0
-        header_threshold = page_height * 0.15
-        footer_threshold = page_height * 0.85
-
         all_subtitle_phs = list(layout_placeholders.get('SUBTITLE', []))
         
         header_ph, footer_ph = None, None
         main_subtitle_candidates = []
         
-        logging.debug(f"  Layout '{layout_name}': Found {len(all_subtitle_phs)} SUBTITLE placeholder(s). Page height: {page_height}")
+        logging.debug(f"  Layout '{layout_name}': Found {len(all_subtitle_phs)} SUBTITLE placeholder(s).")
 
         if len(all_subtitle_phs) >= 2:
             header_ph = all_subtitle_phs.pop(0)
@@ -348,7 +355,8 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         elif len(all_subtitle_phs) == 1:
             candidate = all_subtitle_phs[0]
             title_ph_list = (layout_placeholders.get('TITLE', []) or layout_placeholders.get('CENTERED_TITLE', []))
-            title_y = title_ph_list[0]['y'] if title_ph_list else page_height  # Default to bottom if no title
+            # If no title, treat any single subtitle as main content.
+            title_y = title_ph_list[0]['y'] if title_ph_list else candidate['y'] + 1 
             
             logging.debug(f"  -> Single SUBTITLE candidate: id={candidate['id']}, y={candidate['y']}. Title y={title_y}")
             if candidate['y'] < title_y:

@@ -55,7 +55,7 @@ The script must parse the Markdown content with the following specific rules:
    - All \_COMMENT_START\_...\_COMMENT_END\_ blocks must be removed from the final visible content on the slides.
    - The script must remove \[cite_start\] and \[cite: XX\] tags. This specific removal operation MUST be performed using a regular expression composed **only of Unicode character codes** (e.g., \\uXXXX).
 
-**Robustness** and **Error Handling:**
+**Robustness and Error Handling:**
 
 1. **API Scopes**: The script must use the broad https://www.googleapis.com/auth/drive scope to ensure it can access shared templates and folders.
 2. **Shared Drive Support**: All Google Drive API calls that interact with files (like copying and checking permissions) MUST include the supportsAllDrives=True parameter to prevent storage quota errors with the service account.
@@ -93,3 +93,5 @@ Generate a shell script named install.sh that automates the local setup process.
 ### **Detailed Requirements for Other Files**
 
 - **requirements.txt**: Should contain all necessary Python packages (google-api-python-client, google-auth-httplib2, google-auth-oauthlib, python-dotenv, markdown-it-py, PyYAML).
+- **.env.example**: An example .env file with placeholder values for all required variables.
+- **layouts.yaml.example**: An example layouts.yaml file showing the correct structure and some sample mappings.

@@ -64,4 +64,6 @@ Follow these steps to set up the environment and configure the tool. The process
    ./generate.sh
 
    \# Or run the Python script directly (ensure venv is active)  
-   \# python3 md2gslides.py  
+   \# python3 md2gslides.py
+
+3. **Check the Output**: The script will log its progress to the console and to a generation.log file. Upon successful completion, it will print a link to each generated presentation.

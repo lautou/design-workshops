@@ -307,148 +307,143 @@ def parse_markdown_to_slides(processed_content):
     return slides_data
 
 def populate_body_with_rich_text(service, presentation_id, object_id, rich_text):
+    """
+    Populates a text placeholder with richly formatted text from Markdown.
+    This implementation uses a two-phase approach inspired by test_list_nesting.py:
+    1. Inserts all text with tab-based indentation and applies character-level
+       formatting (bold, italic).
+    2. Applies paragraph-level formatting (bullets) to contiguous list blocks.
+    This method correctly handles nested lists by leveraging the Slides API's
+    interpretation of tab characters for indentation levels within a bulleted list,
+    allowing the theme's own list styles to be applied.
+    """
     requests = []
+    
+    # --- Step 1: Prepare the text and metadata for each paragraph ---
+    paragraph_metadata = []
+    final_text_lines = []
+    current_offset = 0
 
-    # Split into lines, remove unnecessary blank lines
+    # Process all non-empty lines from the input text
     lines = [line for line in rich_text.split('\n') if line.strip()]
 
-    # The requirement is to treat all markdown lists (ordered or unordered) as bulleted lists.
-    preset = "BULLET_DISC_CIRCLE_SQUARE" 
-
-    # Process each line: detect lists, remove markers, process formatting
-    cleaned_lines = []
-    paragraph_ranges = []  # To store (start, end) for each paragraph
     for line in lines:
-        leading_spaces = len(line) - len(line.lstrip())
-        level = leading_spaces // 4  # Assume 4 spaces per level
-        stripped = line.lstrip()
-
-        is_list = False
+        leading_spaces = len(line) - len(line.lstrip(' '))
+        # Reference logic from test_list_nesting.py uses 2 spaces per level.
+        # This provides a consistent way to determine nesting.
+        level = leading_spaces // 2
         
-        # Match both numbered lists (^\d+\.\s) AND unordered lists (^[-\*]\s)
-        if re.match(r'^\d+\.\s', stripped):
-            cleaned = re.sub(r'^\d+\.\s', '', stripped)
-            is_list = True
-        elif re.match(r'^[-*]\s', stripped):
-            cleaned = re.sub(r'^[-*]\s', '', stripped)
-            is_list = True
+        content_part = line.lstrip(' ')
+        is_list_item = False
+        
+        # Match both numbered lists (^\d+\.\s) and unordered lists (^[-\*]\s)
+        if re.match(r'^\d+\.\s', content_part):
+            cleaned_content = re.sub(r'^\d+\.\s', '', content_part)
+            is_list_item = True
+        elif re.match(r'^[-*]\s', content_part):
+            cleaned_content = re.sub(r'^[-*]\s', '', content_part)
+            is_list_item = True
         else:
-            cleaned = stripped
+            cleaned_content = content_part
 
-        # Now remove bold/italic markdown and collect ranges
-        plain, bold_ranges, italic_ranges = remove_formatting(cleaned)
+        # Use the existing helper to parse bold/italic formatting
+        plain_text, bold_ranges, italic_ranges = remove_formatting(cleaned_content)
 
-        cleaned_lines.append(plain)
-        # Store the info for this paragraph
-        paragraph_ranges.append({
-            'is_list': is_list,
-            'level': level,
-            'bold_ranges': bold_ranges,
-            'italic_ranges': italic_ranges
-        })
-
-    # Insert the cleaned text
-    text_to_insert = '\n'.join(cleaned_lines)
-    requests.append({
-        "insertText": {
-            "objectId": object_id,
-            "text": text_to_insert
-        }
-    })
-
-    # Apply formatting
-    current_index = 0
-    # Use tighter indents for better visual appearance on slides.
-    INDENT_START_BASE = 20  # Base indent for text start (in points)
-    INDENT_HANGING = 18     # Negative indent to pull the bullet left (in points)
-    INDENT_PER_LEVEL = 20   # Indent for nesting (in points)
-
-    for i, plain_line in enumerate(cleaned_lines):
-        # Calculate the length of the line including the newline character,
-        # but the final line does not have a trailing newline.
-        line_length_with_newline = len(plain_line) + 1 
-        if i == len(cleaned_lines) - 1:
-            line_length_with_newline -= 1 
-
-        # The range for applying paragraph style or bullets should exclude the trailing newline
-        paragraph_end_index = current_index + line_length_with_newline
-        if i < len(cleaned_lines) - 1:
-            paragraph_end_index -= 1 # Exclude newline for intermediate paragraphs
+        # Prepend tab characters to control the nesting level that Slides API will apply.
+        line_text_to_insert = ('\t' * level) + plain_text
+        final_text_lines.append(line_text_to_insert)
         
-        para_info = paragraph_ranges[i]
+        # Store metadata for the formatting phase
+        start_index = current_offset
+        end_index = start_index + len(line_text_to_insert)
+        
+        # Adjust bold/italic ranges to account for the added tabs
+        tab_offset = len('\t' * level)
+        adjusted_bold = [(start + tab_offset, end + tab_offset) for start, end in bold_ranges]
+        adjusted_italic = [(start + tab_offset, end + tab_offset) for start, end in italic_ranges]
 
+        paragraph_metadata.append({
+            'is_list': is_list_item,
+            'level': level,
+            'range': (start_index, end_index),
+            'bold_ranges': adjusted_bold,
+            'italic_ranges': adjusted_italic
+        })
+        current_offset = end_index + 1 # Account for the newline character
+
+    # --- Step 2: Phase 1 - Insert Text and Apply Character Styles ---
+    full_text = '\n'.join(final_text_lines)
+    
+    # Start with the text insertion request
+    if full_text:
+        requests.append({"insertText": {"objectId": object_id, "text": full_text}})
+
+    # Add requests for bold and italic styling based on calculated ranges
+    for meta in paragraph_metadata:
         # Apply bold
-        for start, end in para_info['bold_ranges']:
+        for start, end in meta['bold_ranges']:
             requests.append({
                 "updateTextStyle": {
                     "objectId": object_id,
-                    "textRange": {
-                        "type": "FIXED_RANGE",
-                        "startIndex": current_index + start,
-                        "endIndex": current_index + end
-                    },
-                    "style": {"bold": True},
-                    "fields": "bold"
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": meta['range'][0] + start, "endIndex": meta['range'][0] + end},
+                    "style": {"bold": True}, "fields": "bold"
                 }
             })
 
         # Apply italic
-        for start, end in para_info['italic_ranges']:
+        for start, end in meta['italic_ranges']:
             requests.append({
                 "updateTextStyle": {
                     "objectId": object_id,
-                    "textRange": {
-                        "type": "FIXED_RANGE",
-                        "startIndex": current_index + start,
-                        "endIndex": current_index + end
-                    },
-                    "style": {"italic": True},
-                    "fields": "italic"
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": meta['range'][0] + start, "endIndex": meta['range'][0] + end},
+                    "style": {"italic": True}, "fields": "italic"
                 }
             })
 
-        if para_info['is_list']:
-            # Apply bullets/numbers
-            requests.append({
+    try:
+        if requests:
+            service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": requests}).execute()
+            logging.info("Phase 1 Complete: Text and character styles applied.")
+    except HttpError as err:
+        logging.error(f"Error during Phase 1 (Text/Style Insertion): {err}", exc_info=True)
+        return
+
+    # --- Step 3: Phase 2 - Apply Bullets to Contiguous List Items ---
+    bullet_requests = []
+    i = 0
+    while i < len(paragraph_metadata):
+        # Find the start of a block of list items
+        if paragraph_metadata[i]['is_list']:
+            list_block_start_index = paragraph_metadata[i]['range'][0]
+            j = i
+            # Find the end of that same contiguous block
+            while j < len(paragraph_metadata) and paragraph_metadata[j]['is_list']:
+                list_block_end_index = paragraph_metadata[j]['range'][1]
+                j += 1
+            
+            # Create a single request for the entire block
+            bullet_requests.append({
                 "createParagraphBullets": {
                     "objectId": object_id,
                     "textRange": {
                         "type": "FIXED_RANGE",
-                        "startIndex": current_index,
-                        "endIndex": paragraph_end_index 
+                        "startIndex": list_block_start_index,
+                        "endIndex": list_block_end_index
                     },
-                    "bulletPreset": preset
+                    "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE"
                 }
             })
-
-            # Apply customized indents for nesting
-            # This ensures the text starts closer to the bullet.
-            indent_start = INDENT_START_BASE + para_info['level'] * INDENT_PER_LEVEL
-            
-            requests.append({
-                "updateParagraphStyle": {
-                    "objectId": object_id,
-                    "textRange": {
-                        "type": "FIXED_RANGE",
-                        "startIndex": current_index,
-                        "endIndex": paragraph_end_index
-                    },
-                    "style": {
-                        "indentFirstLine": {"magnitude": -INDENT_HANGING, "unit": "PT"},
-                        "indentStart": {"magnitude": indent_start, "unit": "PT"},
-                        "alignment": "START"
-                    },
-                    "fields": "indentFirstLine,indentStart,alignment"
-                }
-            })
-
-        current_index += line_length_with_newline
-
-    # Execute the batch update
+            i = j # Move pointer to the end of the processed block
+        else:
+            i += 1
+    
     try:
-        service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": requests}).execute()
+        if bullet_requests:
+            service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": bullet_requests}).execute()
+            logging.info("Phase 2 Complete: Bullets applied to list blocks.")
     except HttpError as err:
-        logging.error(f"An error occurred while populating rich text: {err}", exc_info=True)
+        logging.error(f"Error during Phase 2 (Bullet Application): {err}", exc_info=True)
+
 
 def remove_formatting(line):
     bold_ranges = []

@@ -132,12 +132,16 @@ def get_template_theme_info(service, template_id, target_theme_name):
         final_layouts = {}
         for layout in all_layouts:
             if layout.get('layoutProperties', {}).get('masterObjectId') == most_used_master_id:
+                display_name = layout.get('layoutProperties', {}).get('displayName')
+                logging.debug(f"--- Inspecting Layout: '{display_name}' ---")
                 layout_details = {'id': layout.get('objectId'), 'placeholders': {}}
                 for element in layout.get('pageElements', []):
                     if 'placeholder' in element.get('shape', {}):
                         ph = element['shape']['placeholder']
                         ph_type = ph.get('type', 'BODY')
                         ph_index = ph.get('index', 0)
+                        
+                        logging.debug(f"  -> Found placeholder -> Type: {ph_type}, Index: {ph_index}")
                         
                         transform = element.get('transform', {})
                         x_pos = transform.get('translateX', 0)
@@ -216,6 +220,7 @@ def copy_template_presentation(drive_service, template_id, new_title, folder_id)
 def preprocess_markdown(raw_markdown_content):
     cite_start_regex = r'\u005B\u0063\u0069\u0074\u0065\u005F\u0073\u0074\u0061\u0072\u0074\u005D'
     content = re.sub(cite_start_regex, '', raw_markdown_content)
+    # Updated regex to handle multiple, comma-separated numbers. e.g., [cite: 70, 71]
     cite_xx_regex = r'\u005B\u0063\u0069\u0074\u0065\u003A\u0020[\u0030-\u0039]+(?:,\s*[\u0030-\u0039]+)*\u005D'
     content = re.sub(cite_xx_regex, '', content)
     return content
@@ -566,11 +571,15 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             new_ids['body2'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[1]['index']}, 'objectId': new_ids['body2']})
         
-        elif body_phs and (slide_data['body'] or slide_data['table']):
+        # If there is body text (but no table), map the body placeholder.
+        elif body_phs and slide_data['body'] and not slide_data['table']:
             new_ids['body1'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
             part1_text = slide_data['body']
-            logging.debug("  -> Assigned body to single BODY placeholder.")
+            logging.debug("  -> Assigned body text to single BODY placeholder.")
+        # If there is a table, we don't map the body placeholder. The table will be created in its place.
+        elif body_phs and slide_data['table']:
+             logging.debug("  -> Found table content. Body placeholder will be used for table placement, not text.")
             
         elif not body_phs and slide_data['body'] and main_subtitle_candidates:
             body_fallback_ph = main_subtitle_candidates.pop(0)
@@ -600,18 +609,26 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             rows = len(slide_data['table'])
             cols = len(slide_data['table'][0])
             
-            body_placeholder = None
+            content_placeholder = None
             if body_phs:
                 layout_page = service.presentations().pages().get(presentationId=TEMPLATE_ID, pageObjectId=layout_details['id']).execute()
                 for element in layout_page.get('pageElements', []):
                     if 'placeholder' in element.get('shape', {}):
                         if element['shape']['placeholder'].get('type') == 'BODY' and element['shape']['placeholder'].get('index') == body_phs[0]['index']:
-                            body_placeholder = element
+                            content_placeholder = element
+                            break
+            
+            if not content_placeholder and main_subtitle_candidates:
+                 layout_page = service.presentations().pages().get(presentationId=TEMPLATE_ID, pageObjectId=layout_details['id']).execute()
+                 for element in layout_page.get('pageElements', []):
+                    if 'placeholder' in element.get('shape', {}):
+                        if element['shape']['placeholder'].get('type') == 'SUBTITLE' and element['shape']['placeholder'].get('index') == main_subtitle_candidates[0]['index']:
+                            content_placeholder = element
                             break
             
             # --- 1. Calculate Table and Column Widths ---
-            if body_placeholder:
-                table_width = body_placeholder['size']['width']['magnitude']
+            if content_placeholder:
+                table_width = content_placeholder['size']['width']['magnitude']
             else:
                 table_width = page_size['width']['magnitude'] * 0.9
 
@@ -626,40 +643,54 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             if total_chars > 0:
                 column_widths = [int((max_chars / total_chars) * table_width) for max_chars in max_chars_per_column]
             
-            # --- 2. Estimate Table Height ---
+            # --- 2. Estimate Table Height and Adjust Font Size ---
+            font_size = 10  # Start with a default font size
             table_height = 0
-            base_row_height_emu = 200000      # Base height for a single-line row with padding
-            extra_line_height_emu = 150000   # Approx additional height for each wrapped line
-            
-            for row_idx, row in enumerate(slide_data['table']):
-                max_lines_in_row = 1
-                for col_idx, cell in enumerate(row):
-                    plain_text, _, _ = remove_formatting(cell)
-                    col_width_emu = column_widths[col_idx]
-                    # Heuristic: Estimate chars per line based on column width. Assumes ~22 chars per 1M EMU.
-                    chars_per_line = (col_width_emu / 1000000) * 22 if col_width_emu > 0 else 1
-                    
-                    lines_for_cell = 1
-                    if chars_per_line > 0:
-                        lines_for_cell = -(-len(plain_text) // chars_per_line) if len(plain_text) > 0 else 1
-                    
-                    if lines_for_cell > max_lines_in_row:
-                        max_lines_in_row = lines_for_cell
-                
-                table_height += base_row_height_emu + ((max_lines_in_row - 1) * extra_line_height_emu)
 
+            while font_size > 5: # Minimum font size of 5
+                table_height = 0
+                base_row_height_emu = int(font_size * 20000)
+                extra_line_height_emu = int(font_size * 15000)
+                
+                for row_idx, row in enumerate(slide_data['table']):
+                    max_lines_in_row = 1
+                    for col_idx, cell in enumerate(row):
+                        plain_text, _, _ = remove_formatting(cell)
+                        col_width_emu = column_widths[col_idx]
+                        chars_per_line = (col_width_emu / 1000000) * (28 - font_size) if col_width_emu > 0 else 1
+                        
+                        lines_for_cell = 1
+                        if chars_per_line > 0:
+                            lines_for_cell = -(-len(plain_text) // chars_per_line) if len(plain_text) > 0 else 1
+                        
+                        if lines_for_cell > max_lines_in_row:
+                            max_lines_in_row = lines_for_cell
+                    
+                    table_height += base_row_height_emu + ((max_lines_in_row - 1) * extra_line_height_emu)
+
+                if content_placeholder and table_height > content_placeholder['size']['height']['magnitude']:
+                    font_size -= 1
+                else:
+                    break
+
+            logging.debug(f"  -> Final Font Size: {font_size}pt, Estimated Table Height: {table_height} EMU")
+            
             # --- 3. Calculate Centered Position and Define Element Properties ---
-            if body_placeholder and 'transform' in body_placeholder:
-                placeholder_width = body_placeholder['size']['width']['magnitude']
-                placeholder_height = body_placeholder['size']['height']['magnitude']
-                placeholder_translate_x = body_placeholder['transform']['translateX']
-                placeholder_translate_y = body_placeholder['transform']['translateY']
+            if content_placeholder and 'transform' in content_placeholder:
+                placeholder_width = content_placeholder['size']['width']['magnitude']
+                placeholder_height = content_placeholder['size']['height']['magnitude']
+                placeholder_translate_x = content_placeholder['transform']['translateX']
+                placeholder_translate_y = content_placeholder['transform']['translateY']
+
+                logging.debug(f"  -> Content Placeholder Coords: X={placeholder_translate_x}, Y={placeholder_translate_y}, W={placeholder_width}, H={placeholder_height}")
 
                 centered_translateX = placeholder_translate_x + (placeholder_width - table_width) / 2
                 centered_translateY = placeholder_translate_y + (placeholder_height - table_height) / 2
 
                 if centered_translateY < placeholder_translate_y:
                     centered_translateY = placeholder_translate_y
+
+                logging.debug(f"  -> Calculated Table Coords: X={int(centered_translateX)}, Y={int(centered_translateY)}, W={table_width}, H={table_height}")
 
                 transform = {
                     'scaleX': 1, 'scaleY': 1,
@@ -709,22 +740,31 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             for row_idx, row in enumerate(slide_data['table']):
                 for col_idx, cell in enumerate(row):
                     plain_text, bold_ranges, _ = remove_formatting(cell)
-                    all_update_requests.append({
-                        'insertText': {
-                            'objectId': table_id,
-                            'cellLocation': {'rowIndex': row_idx, 'columnIndex': col_idx},
-                            'text': plain_text
-                        }
-                    })
-                    if bold_ranges:
-                        all_update_requests.append({
+                    
+                    # Only add requests if there is text to prevent styling empty cells
+                    if plain_text:
+                        all_update_requests.extend([{
+                            'insertText': {
+                                'objectId': table_id,
+                                'cellLocation': {'rowIndex': row_idx, 'columnIndex': col_idx},
+                                'text': plain_text
+                            }},{
                             'updateTextStyle': {
                                 'objectId': table_id,
                                 'cellLocation': {'rowIndex': row_idx, 'columnIndex': col_idx},
-                                'style': {'bold': True},
-                                'fields': 'bold'
+                                'style': {'fontSize': {'magnitude': font_size, 'unit': 'PT'}},
+                                'fields': 'fontSize'
                             }
-                        })
+                        }])
+                        if bold_ranges:
+                            all_update_requests.append({
+                                'updateTextStyle': {
+                                    'objectId': table_id,
+                                    'cellLocation': {'rowIndex': row_idx, 'columnIndex': col_idx},
+                                    'style': {'bold': True},
+                                    'fields': 'bold'
+                                }
+                            })
 
 
         if slide_data['notes']:
@@ -835,5 +875,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 

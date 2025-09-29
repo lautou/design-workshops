@@ -602,16 +602,19 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             
             body_placeholder = None
             if body_phs:
-                # To get the placeholder details, we must fetch the layout's page elements
                 layout_page = service.presentations().pages().get(presentationId=TEMPLATE_ID, pageObjectId=layout_details['id']).execute()
                 for element in layout_page.get('pageElements', []):
                     if 'placeholder' in element.get('shape', {}):
                         if element['shape']['placeholder'].get('type') == 'BODY' and element['shape']['placeholder'].get('index') == body_phs[0]['index']:
                             body_placeholder = element
                             break
+            
+            # --- 1. Calculate Table and Column Widths ---
+            if body_placeholder:
+                table_width = body_placeholder['size']['width']['magnitude']
+            else:
+                table_width = page_size['width']['magnitude'] * 0.9
 
-            table_width = 0
-            # Calculate column widths based on character counts
             max_chars_per_column = [0] * cols
             for row in slide_data['table']:
                 for i, cell in enumerate(row):
@@ -619,39 +622,66 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
                         max_chars_per_column[i] = len(cell)
             
             total_chars = sum(max_chars_per_column)
+            column_widths = [int((1/cols) * table_width)] * cols
             if total_chars > 0:
-                if body_placeholder:
-                    table_width = body_placeholder['size']['width']['magnitude']
-                else:
-                    table_width = page_size['width']['magnitude'] * 0.9 # Default to 90% of page width
-                
                 column_widths = [int((max_chars / total_chars) * table_width) for max_chars in max_chars_per_column]
-            else:
-                column_widths = [int((1/cols) * table_width)] * cols
-
             
-            if body_placeholder and 'transform' in body_placeholder:
-                # Center the table within the placeholder's horizontal space
-                placeholder_width = body_placeholder['size']['width']['magnitude']
-                centered_translateX = body_placeholder['transform']['translateX'] + (placeholder_width - table_width) / 2
+            # --- 2. Estimate Table Height ---
+            table_height = 0
+            base_row_height_emu = 200000      # Base height for a single-line row with padding
+            extra_line_height_emu = 150000   # Approx additional height for each wrapped line
+            
+            for row_idx, row in enumerate(slide_data['table']):
+                max_lines_in_row = 1
+                for col_idx, cell in enumerate(row):
+                    plain_text, _, _ = remove_formatting(cell)
+                    col_width_emu = column_widths[col_idx]
+                    # Heuristic: Estimate chars per line based on column width. Assumes ~22 chars per 1M EMU.
+                    chars_per_line = (col_width_emu / 1000000) * 22 if col_width_emu > 0 else 1
+                    
+                    lines_for_cell = 1
+                    if chars_per_line > 0:
+                        lines_for_cell = -(-len(plain_text) // chars_per_line) if len(plain_text) > 0 else 1
+                    
+                    if lines_for_cell > max_lines_in_row:
+                        max_lines_in_row = lines_for_cell
                 
-                transform = body_placeholder['transform']
-                transform['scaleX'] = 1
-                transform['scaleY'] = 1
-                transform['translateX'] = centered_translateX
+                table_height += base_row_height_emu + ((max_lines_in_row - 1) * extra_line_height_emu)
+
+            # --- 3. Calculate Centered Position and Define Element Properties ---
+            if body_placeholder and 'transform' in body_placeholder:
+                placeholder_width = body_placeholder['size']['width']['magnitude']
+                placeholder_height = body_placeholder['size']['height']['magnitude']
+                placeholder_translate_x = body_placeholder['transform']['translateX']
+                placeholder_translate_y = body_placeholder['transform']['translateY']
+
+                centered_translateX = placeholder_translate_x + (placeholder_width - table_width) / 2
+                centered_translateY = placeholder_translate_y + (placeholder_height - table_height) / 2
+
+                if centered_translateY < placeholder_translate_y:
+                    centered_translateY = placeholder_translate_y
+
+                transform = {
+                    'scaleX': 1, 'scaleY': 1,
+                    'translateX': centered_translateX,
+                    'translateY': centered_translateY,
+                    'unit': 'EMU'
+                }
+                
                 element_properties = {
                     'pageObjectId': new_slide_id,
-                    'size': { 'width': {'magnitude': table_width, 'unit': 'EMU'}, 'height': body_placeholder['size']['height'] },
+                    'size': { 'width': {'magnitude': table_width, 'unit': 'EMU'}, 'height': {'magnitude': table_height, 'unit': 'EMU'} },
                     'transform': transform
                 }
-            else: # Default position and size if no body placeholder
+            else:
                 centered_translateX = (page_size['width']['magnitude'] - table_width) / 2
                 element_properties = {
                     'pageObjectId': new_slide_id,
-                    'size': { 'height': {'magnitude': 3000000, 'unit': 'EMU'}, 'width': {'magnitude': table_width, 'unit': 'EMU'}},
+                    'size': { 'height': {'magnitude': table_height, 'unit': 'EMU'}, 'width': {'magnitude': table_width, 'unit': 'EMU'}},
                     'transform': {'scaleX': 1, 'scaleY': 1, 'translateX': centered_translateX, 'translateY': 1000000, 'unit': 'EMU'}
                 }
 
+            # --- 4. Build Requests ---
             all_update_requests.append({
                 'createTable': {
                     'objectId': table_id,
@@ -805,3 +835,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

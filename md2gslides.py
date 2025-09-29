@@ -233,13 +233,15 @@ def parse_global_headers(raw_markdown_content):
 
 def parse_slide_content(slide_text):
     """
-    Parses a slide's text into title, subtitle, and body components.
+    Parses a slide's text into title, subtitle, body and table components.
     The first heading of any level (#, ##, ###) is considered the title.
     """
-    title, subtitle, body = "", "", ""
+    title, subtitle, body, table = "", "", "", None
     lines = slide_text.strip().split('\n')
     
     body_lines = []
+    table_lines = []
+    is_table = False
     
     title_found = False
     
@@ -263,15 +265,37 @@ def parse_slide_content(slide_text):
             # Only consider '##' as a subtitle, not '###' etc.
             if stripped_body_line.startswith('## '):
                  subtitle_lines.append(stripped_body_line.lstrip('## ').strip())
+            # Table detection
+            elif stripped_body_line.startswith('|') and stripped_body_line.endswith('|'):
+                is_table = True
+                table_lines.append(stripped_body_line)
             else:
                  final_body_lines.append(body_line)
         subtitle = "\n".join(subtitle_lines)
         body = "\n".join(final_body_lines).strip()
     else:
-        # If no heading was found at all, the whole content is the body
-        body = "\n".join(body_lines).strip()
+        # If no heading was found at all, check for a table in the body
+        final_body_lines = []
+        for line in body_lines:
+            stripped_line = line.strip()
+            if stripped_line.startswith('|') and stripped_line.endswith('|'):
+                is_table = True
+                table_lines.append(stripped_line)
+            else:
+                final_body_lines.append(line)
+        body = "\n".join(final_body_lines).strip()
 
-    return title, subtitle, body
+    if is_table:
+        table_rows = []
+        for line in table_lines:
+            if not re.match(r'\|-*\|', line): # Skip separator line
+                cells = [cell.strip() for cell in line.split('|')[1:-1]]
+                table_rows.append(cells)
+        if table_rows:
+            table = table_rows
+
+    return title, subtitle, body, table
+
 
 def parse_markdown_to_slides(processed_content):
     """
@@ -297,10 +321,10 @@ def parse_markdown_to_slides(processed_content):
         if class_match: layout_class = class_match.group(1).strip().split()[0]; slide_text = slide_text.replace(class_match.group(0), "")
         
         slide_content = re.sub(r'_COMMENT_START_.*?\\?_COMMENT_END_', '', slide_text, flags=re.DOTALL).strip()
-        title, subtitle, body = parse_slide_content(slide_content)
+        title, subtitle, body, table = parse_slide_content(slide_content)
         
         slides_data.append({
-            "title": title, "subtitle": subtitle, "body": body,
+            "title": title, "subtitle": subtitle, "body": body, "table": table,
             "notes": speaker_notes, "class": layout_class
         })
     logging.info(f"Markdown file parsed into {len(slides_data)} slides.")
@@ -526,7 +550,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         
         if len(body_phs) == 2 and slide_data['body']:
             logging.debug("  -> Detected Two-Column Body Layout.")
-            body_parts = re.split(r'(\n\s*\*\*.*?\*\*\s*\n)', slide_data['body'], 1)
+            body_parts = re.split(r'(\n\s*\*\*.*?\*\*\s*\n)', slide_data['body'], maxsplit=1)
             
             if len(body_parts) >= 3:
                 part1_text = body_parts[0].strip()
@@ -542,7 +566,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             new_ids['body2'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[1]['index']}, 'objectId': new_ids['body2']})
         
-        elif body_phs and slide_data['body']:
+        elif body_phs and (slide_data['body'] or slide_data['table']):
             new_ids['body1'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
             part1_text = slide_data['body']
@@ -559,7 +583,8 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             
         create_slide_request = {"createSlide": {"objectId": str(uuid.uuid4()), "slideLayoutReference": {"layoutId": layout_details['id']}, "placeholderIdMappings": placeholder_mappings}}
         response = service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": [create_slide_request]}).execute()
-        
+        new_slide_id = response['replies'][0]['createSlide']['objectId']
+
         if 'title' in new_ids and slide_data['title']: all_update_requests.append({"insertText": {"objectId": new_ids['title'], "text": slide_data['title']}})
         if 'subtitle' in new_ids and slide_data['subtitle']: all_update_requests.append({"insertText": {"objectId": new_ids['subtitle'], "text": slide_data['subtitle']}})
         if 'header' in new_ids and header_text: all_update_requests.append({"insertText": {"objectId": new_ids['header'], "text": header_text}})
@@ -569,9 +594,70 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             all_update_requests.extend(get_rich_text_requests(new_ids['body1'], part1_text))
         if 'body2' in new_ids and part2_text:
             all_update_requests.extend(get_rich_text_requests(new_ids['body2'], part2_text))
+            
+        if slide_data['table']:
+            table_id = str(uuid.uuid4())
+            rows = len(slide_data['table'])
+            cols = len(slide_data['table'][0])
+            
+            body_placeholder = None
+            if body_phs:
+                # To get the placeholder details, we must fetch the layout's page elements
+                layout_page = service.presentations().pages().get(presentationId=TEMPLATE_ID, pageObjectId=layout_details['id']).execute()
+                for element in layout_page.get('pageElements', []):
+                    if 'placeholder' in element.get('shape', {}):
+                        if element['shape']['placeholder'].get('type') == 'BODY' and element['shape']['placeholder'].get('index') == body_phs[0]['index']:
+                            body_placeholder = element
+                            break
+
+            if body_placeholder and 'transform' in body_placeholder:
+                # Ensure scale is 1, as required by the API for table creation
+                transform = body_placeholder['transform']
+                transform['scaleX'] = 1
+                transform['scaleY'] = 1
+                element_properties = {
+                    'pageObjectId': new_slide_id,
+                    'size': body_placeholder['size'],
+                    'transform': transform
+                }
+            else: # Default position and size if no body placeholder
+                element_properties = {
+                    'pageObjectId': new_slide_id,
+                    'size': { 'height': {'magnitude': 3000000, 'unit': 'EMU'}, 'width': {'magnitude': 6000000, 'unit': 'EMU'}},
+                    'transform': {'scaleX': 1, 'scaleY': 1, 'translateX': 350000, 'translateY': 1000000, 'unit': 'EMU'}
+                }
+
+            all_update_requests.append({
+                'createTable': {
+                    'objectId': table_id,
+                    'elementProperties': element_properties,
+                    'rows': rows,
+                    'columns': cols
+                }
+            })
+            
+            for row_idx, row in enumerate(slide_data['table']):
+                for col_idx, cell in enumerate(row):
+                    plain_text, bold_ranges, _ = remove_formatting(cell)
+                    all_update_requests.append({
+                        'insertText': {
+                            'objectId': table_id,
+                            'cellLocation': {'rowIndex': row_idx, 'columnIndex': col_idx},
+                            'text': plain_text
+                        }
+                    })
+                    if bold_ranges:
+                        all_update_requests.append({
+                            'updateTextStyle': {
+                                'objectId': table_id,
+                                'cellLocation': {'rowIndex': row_idx, 'columnIndex': col_idx},
+                                'style': {'bold': True},
+                                'fields': 'bold'
+                            }
+                        })
+
 
         if slide_data['notes']:
-            new_slide_id = response['replies'][0]['createSlide']['objectId']
             slide_page = service.presentations().pages().get(presentationId=presentation_id, pageObjectId=new_slide_id).execute()
             notes_page_props = slide_page.get('slideProperties', {}).get('notesPage', {})
             if notes_page_props:
@@ -584,7 +670,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         if all_update_requests:
             service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": all_update_requests}).execute()
         
-        if not ('body1' in new_ids or 'body2' in new_ids) and slide_data['body']:
+        if not ('body1' in new_ids or 'body2' in new_ids or slide_data['table']) and slide_data['body']:
              logging.warning(f"   -> No suitable placeholder found for body content on slide with class '{layout_class}'. Body was not inserted.")
 
     except HttpError as err:

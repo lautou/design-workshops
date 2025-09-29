@@ -306,37 +306,27 @@ def parse_markdown_to_slides(processed_content):
     logging.info(f"Markdown file parsed into {len(slides_data)} slides.")
     return slides_data
 
-def populate_body_with_rich_text(service, presentation_id, object_id, rich_text):
+def get_rich_text_requests(object_id, rich_text):
     """
-    Populates a text placeholder with richly formatted text from Markdown.
-    This implementation uses a two-phase approach inspired by test_list_nesting.py:
-    1. Inserts all text with tab-based indentation and applies character-level
-       formatting (bold, italic).
-    2. Applies paragraph-level formatting (bullets) to contiguous list blocks.
-    This method correctly handles nested lists by leveraging the Slides API's
-    interpretation of tab characters for indentation levels within a bulleted list,
-    allowing the theme's own list styles to be applied.
+    Generates a list of requests for populating a shape with richly formatted text.
+    Does NOT execute the requests.
     """
-    requests = []
+    all_requests = []
     
     # --- Step 1: Prepare the text and metadata for each paragraph ---
     paragraph_metadata = []
     final_text_lines = []
     current_offset = 0
 
-    # Process all non-empty lines from the input text
     lines = [line for line in rich_text.split('\n') if line.strip()]
 
     for line in lines:
         leading_spaces = len(line) - len(line.lstrip(' '))
-        # Reference logic from test_list_nesting.py uses 2 spaces per level.
-        # This provides a consistent way to determine nesting.
         level = leading_spaces // 2
         
         content_part = line.lstrip(' ')
         is_list_item = False
         
-        # Match both numbered lists (^\d+\.\s) and unordered lists (^[-\*]\s)
         if re.match(r'^\d+\.\s', content_part):
             cleaned_content = re.sub(r'^\d+\.\s', '', content_part)
             is_list_item = True
@@ -346,18 +336,13 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
         else:
             cleaned_content = content_part
 
-        # Use the existing helper to parse bold/italic formatting
         plain_text, bold_ranges, italic_ranges = remove_formatting(cleaned_content)
-
-        # Prepend tab characters to control the nesting level that Slides API will apply.
         line_text_to_insert = ('\t' * level) + plain_text
         final_text_lines.append(line_text_to_insert)
         
-        # Store metadata for the formatting phase
         start_index = current_offset
         end_index = start_index + len(line_text_to_insert)
         
-        # Adjust bold/italic ranges to account for the added tabs
         tab_offset = len('\t' * level)
         adjusted_bold = [(start + tab_offset, end + tab_offset) for start, end in bold_ranges]
         adjusted_italic = [(start + tab_offset, end + tab_offset) for start, end in italic_ranges]
@@ -369,30 +354,25 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
             'bold_ranges': adjusted_bold,
             'italic_ranges': adjusted_italic
         })
-        current_offset = end_index + 1 # Account for the newline character
+        current_offset = end_index + 1
 
     # --- Step 2: Phase 1 - Insert Text and Apply Character Styles ---
     full_text = '\n'.join(final_text_lines)
     
-    # Start with the text insertion request
     if full_text:
-        requests.append({"insertText": {"objectId": object_id, "text": full_text}})
+        all_requests.append({"insertText": {"objectId": object_id, "text": full_text}})
 
-    # Add requests for bold and italic styling based on calculated ranges
     for meta in paragraph_metadata:
-        # Apply bold
         for start, end in meta['bold_ranges']:
-            requests.append({
+            all_requests.append({
                 "updateTextStyle": {
                     "objectId": object_id,
                     "textRange": {"type": "FIXED_RANGE", "startIndex": meta['range'][0] + start, "endIndex": meta['range'][0] + end},
                     "style": {"bold": True}, "fields": "bold"
                 }
             })
-
-        # Apply italic
         for start, end in meta['italic_ranges']:
-            requests.append({
+            all_requests.append({
                 "updateTextStyle": {
                     "objectId": object_id,
                     "textRange": {"type": "FIXED_RANGE", "startIndex": meta['range'][0] + start, "endIndex": meta['range'][0] + end},
@@ -400,29 +380,17 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
                 }
             })
 
-    try:
-        if requests:
-            service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": requests}).execute()
-            logging.info("Phase 1 Complete: Text and character styles applied.")
-    except HttpError as err:
-        logging.error(f"Error during Phase 1 (Text/Style Insertion): {err}", exc_info=True)
-        return
-
     # --- Step 3: Phase 2 - Apply Bullets to Contiguous List Items ---
-    bullet_requests = []
     i = 0
     while i < len(paragraph_metadata):
-        # Find the start of a block of list items
         if paragraph_metadata[i]['is_list']:
             list_block_start_index = paragraph_metadata[i]['range'][0]
             j = i
-            # Find the end of that same contiguous block
             while j < len(paragraph_metadata) and paragraph_metadata[j]['is_list']:
                 list_block_end_index = paragraph_metadata[j]['range'][1]
                 j += 1
             
-            # Create a single request for the entire block
-            bullet_requests.append({
+            all_requests.append({
                 "createParagraphBullets": {
                     "objectId": object_id,
                     "textRange": {
@@ -432,47 +400,36 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
                     }
                 }
             })
-            i = j # Move pointer to the end of the processed block
+            i = j
         else:
             i += 1
     
-    try:
-        if bullet_requests:
-            service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": bullet_requests}).execute()
-            logging.info("Phase 2 Complete: Bullets applied to list blocks using theme default style.")
-    except HttpError as err:
-        logging.error(f"Error during Phase 2 (Bullet Application): {err}", exc_info=True)
+    return all_requests
 
 
 def remove_formatting(line):
     bold_ranges = []
     italic_ranges = []
     
-    # Use re.finditer and a loop that recalculates offsets correctly after modification
     temp_plain = line
     temp_offset = 0
     
-    # Handle bold
     bold_matches = list(re.finditer(r'\*\*(.*?)\*\*', temp_plain))
     for m in bold_matches:
         start_index = m.start() - temp_offset
         end_index = m.end() - temp_offset
         
-        # Adjust content start/end based on previous removals
         content_start = start_index 
         content_end = start_index + len(m.group(1))
         bold_ranges.append((content_start, content_end))
         
-        # Rebuild the string without the delimiters
         temp_plain = temp_plain[:start_index] + m.group(1) + temp_plain[end_index:]
         
-        # Calculate how much was removed to adjust subsequent match indices
-        removed_length = 4 # for the two **
+        removed_length = 4
         temp_offset += removed_length
 
     plain = temp_plain
     
-    # Handle italic
     temp_plain = plain
     temp_offset = 0
     
@@ -481,16 +438,13 @@ def remove_formatting(line):
         start_index = m.start() - temp_offset
         end_index = m.end() - temp_offset
 
-        # Adjust content start/end based on previous removals
         content_start = start_index
         content_end = start_index + len(m.group(1))
         italic_ranges.append((content_start, content_end))
         
-        # Rebuild the string without the delimiters
         temp_plain = temp_plain[:start_index] + m.group(1) + temp_plain[end_index:]
         
-        # Calculate how much was removed to adjust subsequent match indices
-        removed_length = 2 # for the two *
+        removed_length = 2
         temp_offset += removed_length
 
     plain = temp_plain
@@ -507,18 +461,17 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         raise Exception(f"Layout not found: {layout_name}")
 
     try:
+        all_update_requests = []
         placeholder_mappings = []
         new_ids = {}
         assigned_placeholder_ids = set()
         layout_placeholders = layout_details.get('placeholders', {})
         
-        # Body content parts initialized
         part1_text = ""
         part2_text = ""
         
         logging.debug(f"Processing slide with layout '{layout_name}' (class: {layout_class})")
         
-        # --- Role Identification ---
         all_subtitle_phs = list(layout_placeholders.get('SUBTITLE', []))
         
         header_ph, footer_ph = None, None
@@ -534,7 +487,6 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         elif len(all_subtitle_phs) == 1:
             candidate = all_subtitle_phs[0]
             title_ph_list = (layout_placeholders.get('TITLE', []) or layout_placeholders.get('CENTERED_TITLE', []))
-            # If no title, treat any single subtitle as main content.
             title_y = title_ph_list[0]['y'] if title_ph_list else candidate['y'] + 1 
             
             logging.debug(f"  -> Single SUBTITLE candidate: id={candidate['id']}, y={candidate['y']}. Title y={title_y}")
@@ -545,7 +497,6 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
                 main_subtitle_candidates.append(candidate)
                 logging.debug("     ...classified as MAIN CONTENT (below or at title level).")
         
-        # --- Content Assignment ---
         title_ph = (layout_placeholders.get('TITLE', []) or layout_placeholders.get('CENTERED_TITLE', []))
         body_phs = list(layout_placeholders.get('BODY', []))
 
@@ -553,7 +504,6 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             new_ids['title'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': title_ph[0]['type'], 'index': title_ph[0]['index']}, 'objectId': new_ids['title']})
 
-        # Priority 1: Slide-specific subtitle
         if slide_data['subtitle'] and main_subtitle_candidates:
             subtitle_ph = main_subtitle_candidates.pop(0)
             new_ids['subtitle'] = str(uuid.uuid4())
@@ -561,14 +511,12 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             assigned_placeholder_ids.add(subtitle_ph['id'])
             logging.debug(f"  -> Assigned slide subtitle to MAIN placeholder {subtitle_ph['id']}")
 
-        # Priority 2: Global Header
         if header_text and header_ph and header_ph['id'] not in assigned_placeholder_ids:
             new_ids['header'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': header_ph['index']}, 'objectId': new_ids['header']})
             assigned_placeholder_ids.add(header_ph['id'])
             logging.debug(f"  -> Assigned global header to HEADER placeholder {header_ph['id']}")
 
-        # Priority 3: Global Footer
         final_footer_text = footer_text if footer_text else "Red Hat Consulting"
         if final_footer_text and footer_ph and footer_ph['id'] not in assigned_placeholder_ids:
             new_ids['footer'] = str(uuid.uuid4())
@@ -576,59 +524,51 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
             assigned_placeholder_ids.add(footer_ph['id'])
             logging.debug(f"  -> Assigned global footer to FOOTER placeholder {footer_ph['id']}")
         
-        # Special handling for two-column body layouts
         if len(body_phs) == 2 and slide_data['body']:
             logging.debug("  -> Detected Two-Column Body Layout.")
-            # Use the robust regex to split by a bold line preceded and followed by a newline
             body_parts = re.split(r'(\n\s*\*\*.*?\*\*\s*\n)', slide_data['body'], 1)
             
             if len(body_parts) >= 3:
-                # Part 0 is content before the splitter (left column)
-                # Part 1 is the splitter itself (\n**Heading**\n)
-                # Part 2 is the content after the splitter
                 part1_text = body_parts[0].strip()
                 part2_text = (body_parts[1] + body_parts[2]).strip()
                 logging.debug(f"  -> Split body content into two columns.")
-
-            else: # Fallback if no splitter is found
+            else:
                 part1_text = slide_data['body'].strip()
-                # part2_text remains ""
                 logging.debug("  -> No splitter found, placing all body content in the left column.")
             
-            # Map both body placeholders
             new_ids['body1'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
             
             new_ids['body2'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[1]['index']}, 'objectId': new_ids['body2']})
         
-        # Standard body handling
         elif body_phs and slide_data['body']:
             new_ids['body1'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'BODY', 'index': body_phs[0]['index']}, 'objectId': new_ids['body1']})
             part1_text = slide_data['body']
-            part2_text = ""
             logging.debug("  -> Assigned body to single BODY placeholder.")
             
-        # Fallback for body content
         elif not body_phs and slide_data['body'] and main_subtitle_candidates:
             body_fallback_ph = main_subtitle_candidates.pop(0)
             new_ids['body1'] = str(uuid.uuid4())
             placeholder_mappings.append({'layoutPlaceholder': {'type': 'SUBTITLE', 'index': body_fallback_ph['index']}, 'objectId': new_ids['body1']})
             assigned_placeholder_ids.add(body_fallback_ph['id'])
             part1_text = slide_data['body']
-            part2_text = ""
             logging.debug(f"  -> Assigned body to fallback MAIN placeholder {body_fallback_ph['id']}")
             logging.info(f"   -> No 'BODY' placeholder found, using a 'SUBTITLE' as fallback.")
             
         create_slide_request = {"createSlide": {"objectId": str(uuid.uuid4()), "slideLayoutReference": {"layoutId": layout_details['id']}, "placeholderIdMappings": placeholder_mappings}}
         response = service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": [create_slide_request]}).execute()
         
-        text_requests = []
-        if 'title' in new_ids and slide_data['title']: text_requests.append({"insertText": {"objectId": new_ids['title'], "text": slide_data['title']}})
-        if 'subtitle' in new_ids and slide_data['subtitle']: text_requests.append({"insertText": {"objectId": new_ids['subtitle'], "text": slide_data['subtitle']}})
-        if 'header' in new_ids and header_text: text_requests.append({"insertText": {"objectId": new_ids['header'], "text": header_text}})
-        if 'footer' in new_ids: text_requests.append({"insertText": {"objectId": new_ids['footer'], "text": final_footer_text}})
+        if 'title' in new_ids and slide_data['title']: all_update_requests.append({"insertText": {"objectId": new_ids['title'], "text": slide_data['title']}})
+        if 'subtitle' in new_ids and slide_data['subtitle']: all_update_requests.append({"insertText": {"objectId": new_ids['subtitle'], "text": slide_data['subtitle']}})
+        if 'header' in new_ids and header_text: all_update_requests.append({"insertText": {"objectId": new_ids['header'], "text": header_text}})
+        if 'footer' in new_ids: all_update_requests.append({"insertText": {"objectId": new_ids['footer'], "text": final_footer_text}})
+
+        if 'body1' in new_ids and part1_text:
+            all_update_requests.extend(get_rich_text_requests(new_ids['body1'], part1_text))
+        if 'body2' in new_ids and part2_text:
+            all_update_requests.extend(get_rich_text_requests(new_ids['body2'], part2_text))
 
         if slide_data['notes']:
             new_slide_id = response['replies'][0]['createSlide']['objectId']
@@ -638,16 +578,11 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
                 notes_properties = notes_page_props.get('notesProperties', {})
                 speaker_notes_object_id = notes_properties.get('speakerNotesObjectId')
                 if speaker_notes_object_id:
-                    text_requests.append({"insertText": {"objectId": speaker_notes_object_id, "text": slide_data['notes']}})
+                    cleaned_notes = preprocess_markdown(slide_data['notes'])
+                    all_update_requests.extend(get_rich_text_requests(speaker_notes_object_id, cleaned_notes))
 
-        if text_requests:
-            service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": text_requests}).execute()
-
-        # Populate body content after slide creation
-        if 'body1' in new_ids and part1_text:
-            populate_body_with_rich_text(service, presentation_id, new_ids['body1'], part1_text)
-        if 'body2' in new_ids and part2_text:
-            populate_body_with_rich_text(service, presentation_id, new_ids['body2'], part2_text)
+        if all_update_requests:
+            service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": all_update_requests}).execute()
         
         if not ('body1' in new_ids or 'body2' in new_ids) and slide_data['body']:
              logging.warning(f"   -> No suitable placeholder found for body content on slide with class '{layout_class}'. Body was not inserted.")

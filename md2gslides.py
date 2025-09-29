@@ -216,7 +216,7 @@ def copy_template_presentation(drive_service, template_id, new_title, folder_id)
 def preprocess_markdown(raw_markdown_content):
     cite_start_regex = r'\u005B\u0063\u0069\u0074\u0065\u005F\u0073\u0074\u0061\u0072\u0074\u005D'
     content = re.sub(cite_start_regex, '', raw_markdown_content)
-    cite_xx_regex = r'\u005B\u0063\u0069\u0074\u0065\u003A\u0020[\u0030-\u0039]+\u005D'
+    cite_xx_regex = r'\u005B\u0063\u0069\u0074\u0065\u003A\u0020[\u0030-\u0039]+(?:,\s*[\u0030-\u0039]+)*\u005D'
     content = re.sub(cite_xx_regex, '', content)
     return content
 
@@ -835,4 +835,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

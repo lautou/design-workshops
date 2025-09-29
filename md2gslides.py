@@ -610,21 +610,46 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
                             body_placeholder = element
                             break
 
+            table_width = 0
+            # Calculate column widths based on character counts
+            max_chars_per_column = [0] * cols
+            for row in slide_data['table']:
+                for i, cell in enumerate(row):
+                    if len(cell) > max_chars_per_column[i]:
+                        max_chars_per_column[i] = len(cell)
+            
+            total_chars = sum(max_chars_per_column)
+            if total_chars > 0:
+                if body_placeholder:
+                    table_width = body_placeholder['size']['width']['magnitude']
+                else:
+                    table_width = page_size['width']['magnitude'] * 0.9 # Default to 90% of page width
+                
+                column_widths = [int((max_chars / total_chars) * table_width) for max_chars in max_chars_per_column]
+            else:
+                column_widths = [int((1/cols) * table_width)] * cols
+
+            
             if body_placeholder and 'transform' in body_placeholder:
-                # Ensure scale is 1, as required by the API for table creation
+                # Center the table within the placeholder's horizontal space
+                placeholder_width = body_placeholder['size']['width']['magnitude']
+                centered_translateX = body_placeholder['transform']['translateX'] + (placeholder_width - table_width) / 2
+                
                 transform = body_placeholder['transform']
                 transform['scaleX'] = 1
                 transform['scaleY'] = 1
+                transform['translateX'] = centered_translateX
                 element_properties = {
                     'pageObjectId': new_slide_id,
-                    'size': body_placeholder['size'],
+                    'size': { 'width': {'magnitude': table_width, 'unit': 'EMU'}, 'height': body_placeholder['size']['height'] },
                     'transform': transform
                 }
             else: # Default position and size if no body placeholder
+                centered_translateX = (page_size['width']['magnitude'] - table_width) / 2
                 element_properties = {
                     'pageObjectId': new_slide_id,
-                    'size': { 'height': {'magnitude': 3000000, 'unit': 'EMU'}, 'width': {'magnitude': 6000000, 'unit': 'EMU'}},
-                    'transform': {'scaleX': 1, 'scaleY': 1, 'translateX': 350000, 'translateY': 1000000, 'unit': 'EMU'}
+                    'size': { 'height': {'magnitude': 3000000, 'unit': 'EMU'}, 'width': {'magnitude': table_width, 'unit': 'EMU'}},
+                    'transform': {'scaleX': 1, 'scaleY': 1, 'translateX': centered_translateX, 'translateY': 1000000, 'unit': 'EMU'}
                 }
 
             all_update_requests.append({
@@ -636,6 +661,21 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
                 }
             })
             
+            for i, width in enumerate(column_widths):
+                all_update_requests.append({
+                    'updateTableColumnProperties': {
+                        'objectId': table_id,
+                        'columnIndices': [i],
+                        'tableColumnProperties': {
+                            'columnWidth': {
+                                'magnitude': width,
+                                'unit': 'EMU'
+                            }
+                        },
+                        'fields': 'columnWidth'
+                    }
+                })
+
             for row_idx, row in enumerate(slide_data['table']):
                 for col_idx, cell in enumerate(row):
                     plain_text, bold_ranges, _ = remove_formatting(cell)

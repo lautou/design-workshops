@@ -429,8 +429,7 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
                         "type": "FIXED_RANGE",
                         "startIndex": list_block_start_index,
                         "endIndex": list_block_end_index
-                    },
-                    "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE"
+                    }
                 }
             })
             i = j # Move pointer to the end of the processed block
@@ -440,7 +439,7 @@ def populate_body_with_rich_text(service, presentation_id, object_id, rich_text)
     try:
         if bullet_requests:
             service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": bullet_requests}).execute()
-            logging.info("Phase 2 Complete: Bullets applied to list blocks.")
+            logging.info("Phase 2 Complete: Bullets applied to list blocks using theme default style.")
     except HttpError as err:
         logging.error(f"Error during Phase 2 (Bullet Application): {err}", exc_info=True)
 

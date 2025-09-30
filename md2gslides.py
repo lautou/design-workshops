@@ -318,10 +318,10 @@ def parse_markdown_to_slides(processed_content):
     logging.info(f"Markdown file parsed into {len(slides_data)} slides.")
     return slides_data
 
-def get_rich_text_requests(object_id, rich_text):
+def get_rich_text_requests(object_id, rich_text, font_size=None):
     """
     Generates a list of requests for populating a shape with richly formatted text.
-    Does NOT execute the requests.
+    Optionally applies a specific font size to the entire text block.
     """
     all_requests = []
     
@@ -373,6 +373,17 @@ def get_rich_text_requests(object_id, rich_text):
     
     if full_text:
         all_requests.append({"insertText": {"objectId": object_id, "text": full_text}})
+
+    # Apply font size to the entire text block if specified
+    if font_size and full_text:
+        all_requests.append({
+            "updateTextStyle": {
+                "objectId": object_id,
+                "textRange": {"type": "ALL"},
+                "style": {"fontSize": {"magnitude": font_size, "unit": "PT"}},
+                "fields": "fontSize"
+            }
+        })
 
     for meta in paragraph_metadata:
         for start, end in meta['bold_ranges']:
@@ -462,6 +473,48 @@ def remove_formatting(line):
     plain = temp_plain
 
     return plain, bold_ranges, italic_ranges
+
+def find_optimal_font_size(text, placeholder_width_emu, placeholder_height_emu):
+    """
+    Calculates the largest font size that allows the text to fit in the given dimensions.
+    """
+    if not text or not placeholder_width_emu or not placeholder_height_emu:
+        return None 
+        
+    font_size = 11 # Start with a reasonable default body font size
+    min_font_size = 5 # Don't go smaller than this
+
+    while font_size > min_font_size:
+        total_text_height = 0
+        
+        # Heuristic for line height based on font size. EMU = PT * 12700
+        line_height_emu = int(font_size * 1.2 * 12700) 
+
+        lines = text.split('\n')
+        total_lines = 0
+
+        for line in lines:
+            # Heuristic for characters per line. This is a rough estimate.
+            # (width in points) * (chars per point at this font size)
+            chars_per_line = (placeholder_width_emu / 12700) * (1.8 - (font_size * 0.05))
+            if chars_per_line <= 0: chars_per_line = 1
+            
+            # Calculate how many lines this paragraph will wrap into
+            num_lines_for_paragraph = -(-len(line) // chars_per_line) if len(line) > 0 else 1
+            total_lines += num_lines_for_paragraph
+
+        total_text_height = total_lines * line_height_emu
+
+        if total_text_height <= placeholder_height_emu:
+            logging.debug(f"  -> Autofit: Text fits at {font_size}pt. (Estimated Height: {total_text_height} EMU, Placeholder Height: {placeholder_height_emu} EMU)")
+            return font_size
+        else:
+            logging.debug(f"  -> Autofit: Text overflows at {font_size}pt. (Estimated Height: {total_text_height} EMU vs {placeholder_height_emu} EMU). Trying smaller size.")
+            font_size -= 1
+    
+    logging.warning(f"  -> Autofit: Text could not fit even at minimum font size ({min_font_size}pt). Using minimum size.")
+    return min_font_size
+
 
 def add_slide_to_presentation(service, presentation_id, slide_data, class_to_layout_map, template_layouts_map, page_size, header_text, footer_text):
     """Creates a slide using placeholder mappings and populates it with parsed content."""
@@ -572,10 +625,26 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
         if 'header' in new_ids and header_text: all_update_requests.append({"insertText": {"objectId": new_ids['header'], "text": header_text}})
         if 'footer' in new_ids: all_update_requests.append({"insertText": {"objectId": new_ids['footer'], "text": final_footer_text}})
 
+        # --- Autofit Logic for Body Text ---
+        layout_page_for_dims = service.presentations().pages().get(presentationId=TEMPLATE_ID, pageObjectId=layout_details['id']).execute()
+        
         if 'body1' in new_ids and part1_text:
-            all_update_requests.extend(get_rich_text_requests(new_ids['body1'], part1_text))
+            ph_details = next((e for e in layout_page_for_dims.get('pageElements', []) if e.get('shape', {}).get('placeholder', {}).get('type') == 'BODY' and e.get('shape', {}).get('placeholder', {}).get('index') == body_phs[0]['index']), None)
+            font_size_1 = None
+            if ph_details:
+                width = ph_details['size']['width']['magnitude']
+                height = ph_details['size']['height']['magnitude']
+                font_size_1 = find_optimal_font_size(part1_text, width, height)
+            all_update_requests.extend(get_rich_text_requests(new_ids['body1'], part1_text, font_size=font_size_1))
+        
         if 'body2' in new_ids and part2_text:
-            all_update_requests.extend(get_rich_text_requests(new_ids['body2'], part2_text))
+            ph_details = next((e for e in layout_page_for_dims.get('pageElements', []) if e.get('shape', {}).get('placeholder', {}).get('type') == 'BODY' and e.get('shape', {}).get('placeholder', {}).get('index') == body_phs[1]['index']), None)
+            font_size_2 = None
+            if ph_details:
+                width = ph_details['size']['width']['magnitude']
+                height = ph_details['size']['height']['magnitude']
+                font_size_2 = find_optimal_font_size(part2_text, width, height)
+            all_update_requests.extend(get_rich_text_requests(new_ids['body2'], part2_text, font_size=font_size_2))
             
         if slide_data['table']:
             table_id = str(uuid.uuid4())
@@ -620,8 +689,8 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
 
             while font_size > 5:
                 table_height = 0
-                base_row_height_emu = int(font_size * 20000)
-                extra_line_height_emu = int(font_size * 15000)
+                base_row_height_emu = int(font_size * 18000) # Tighter row height
+                extra_line_height_emu = int(font_size * 14000) # Tighter spacing for wrapped lines
                 
                 for row_idx, row in enumerate(slide_data['table']):
                     max_lines_in_row = 1
@@ -650,9 +719,16 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
                 placeholder_translate_x = content_placeholder['transform']['translateX']
                 placeholder_translate_y = content_placeholder['transform']['translateY']
 
-                centered_translateX = placeholder_translate_x + (placeholder_width - table_width) / 2
-                centered_translateY = placeholder_translate_y + (placeholder_height - table_height) / 2
+                # Calculate the exact center point of the placeholder
+                placeholder_center_x = placeholder_translate_x + (placeholder_width / 2)
+                placeholder_center_y = placeholder_translate_y + (placeholder_height / 2)
 
+                # Calculate the top-left position for the new table to be centered
+                centered_translateX = placeholder_center_x - (table_width / 2)
+                centered_translateY = placeholder_center_y - (table_height / 2)
+
+
+                # Ensure the centered table does not go above the original placeholder's top boundary
                 if centered_translateY < placeholder_translate_y:
                     centered_translateY = placeholder_translate_y
 
@@ -667,6 +743,7 @@ def add_slide_to_presentation(service, presentation_id, slide_data, class_to_lay
                     'transform': transform
                 }
             else:
+                # Fallback if no placeholder is found - center horizontally on the page
                 centered_translateX = (page_size['width']['magnitude'] - table_width) / 2
                 element_properties = {
                     'pageObjectId': new_slide_id,
@@ -823,4 +900,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

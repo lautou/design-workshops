@@ -4,3 +4,4 @@ google-auth-oauthlib
 python-dotenv
 markdown-it-py
 PyYAML
+google-cloud-aiplatform

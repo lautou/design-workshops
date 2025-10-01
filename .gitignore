@@ -1,3 +1,4 @@
 *.log
+source_documents/*
 json_source/*
 service-account.json

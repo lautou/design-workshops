@@ -76,7 +76,7 @@ def download_files_from_drive_folder(folder_id):
             file_stream = io.BytesIO()
             downloader = MediaIoBaseDownload(file_stream, request)
             done = False
-            while done is False:
+            while not done:
                 status, done = downloader.next_chunk()
             
             downloaded_files.append({
@@ -110,15 +110,24 @@ def clean_source_directory():
 
 def generate_markdown_files(source_documents, workshops):
     """
-    Loops through enabled workshops, constructs prompts, calls Gemini, and saves the markdown.
+    Loops through enabled workshops, dynamically constructs prompts, calls Gemini, and saves the markdown.
     """
     logging.info("--- Starting Markdown Generation via Gemini (Vertex AI) ---")
     try:
         with open(PROMPT_TEMPLATE_FILE, 'r', encoding='utf-8') as f:
-            base_prompt = f.read()
+            base_prompt_template = f.read()
     except FileNotFoundError:
         logging.critical(f"FATAL: Prompt template not found: '{PROMPT_TEMPLATE_FILE}'")
         sys.exit(1)
+
+    # --- DYNAMIC PROMPT INJECTION ---
+    # Create the workshop roadmap string from the single source of truth (workshops.yaml)
+    all_workshop_titles = [f"* {w['title']}" for w in workshops]
+    workshop_roadmap_str = "\n".join(all_workshop_titles)
+    
+    # Inject the dynamic roadmap into the prompt template
+    base_prompt = base_prompt_template.replace("{{WORKSHOP_ROADMAP}}", workshop_roadmap_str)
+    # --- END DYNAMIC PROMPT INJECTION ---
 
     file_parts = [Part.from_data(d['data'], mime_type=d['mime_type']) for d in source_documents]
     enabled_workshops = [w for w in workshops if w.get('enabled', False)]
@@ -131,7 +140,6 @@ def generate_markdown_files(source_documents, workshops):
 
         logging.info(f"Generating markdown for: '{title}' -> {filename}")
         
-        # Construct the final part of the prompt
         task_prompt = f"\nCurrent Task:\nGenerate the slide deck for the workshop: \"{title}\"."
         prompt_parts = [base_prompt, task_prompt] + file_parts
 
@@ -139,7 +147,6 @@ def generate_markdown_files(source_documents, workshops):
             logging.info(f"Calling Vertex AI Gemini API with {len(file_parts)} source documents...")
             response = model.generate_content(prompt_parts)
             markdown_content = response.text
-            # Clean up the response
             markdown_content = re.sub(r'^```markdown\n', '', markdown_content)
             markdown_content = re.sub(r'\n```$', '', markdown_content)
             
@@ -176,21 +183,19 @@ def run_slides_generation():
 if __name__ == "__main__":
     logging.info("--- Starting Generation Pipeline ---")
     
-    # Stage 1: Load configurations
     workshops_to_run = load_workshops()
-    
-    # Stage 2: Download source documents from Google Drive
     source_docs = download_files_from_drive_folder(SOURCE_DOCS_FOLDER_ID)
     
     if not source_docs:
         logging.warning("No source documents found. Markdown generation will rely on the model's general knowledge.")
 
-    # Stage 3: Generate Markdown for enabled workshops
     clean_source_directory()
     generate_markdown_files(source_docs, workshops_to_run)
     
-    # Stage 4: Generate Slides
-    run_slides_generation()
+    if any(w.get('enabled', False) for w in workshops_to_run):
+        run_slides_generation()
+    else:
+        logging.info("No workshops were enabled in workshops.yaml. Skipping slide generation.")
     
     logging.info("--- Pipeline Finished ---")
 

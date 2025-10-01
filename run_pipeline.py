@@ -33,15 +33,15 @@ try:
     # Configs from .env file
     PROJECT_ID = os.environ['GOOGLE_CLOUD_PROJECT_ID']
     LOCATION = os.environ['GOOGLE_CLOUD_LOCATION']
-    SOURCE_DOCS_FOLDER_ID = os.environ['SOURCE_DOCUMENTS_DRIVE_FOLDER_ID']
     TEMPLATE_PRESENTATION_ID = os.environ['TEMPLATE_PRESENTATION_ID']
     SERVICE_ACCOUNT_FILE = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
+    SOURCE_DOCS_DRIVE_FOLDER_ID = os.environ.get('SOURCE_DOCUMENTS_DRIVE_FOLDER_ID')
     # Script file configs
     PROMPT_TEMPLATE_FILE = "gemini-prompt-generate-json.md"
     WORKSHOPS_FILE = "workshops.yaml"
     LAYOUTS_FILE = "layouts.yaml"
     JSON_SOURCE_DIR = "json_source"
-    LOCAL_DOCS_DIR = "source_documents" # For image extraction
+    LOCAL_DOCS_DIR = "source_documents"
     CACHE_INFO_FILE = ".cache_info.json"
 except KeyError as e:
     logging.critical(f"FATAL: Missing required configuration in .env file: {e}")
@@ -79,6 +79,26 @@ def get_drive_folder_state_hash(folder_id):
     except Exception as e:
         logging.error(f"Could not get Drive folder state for caching: {e}", exc_info=True)
         return None
+
+def get_local_folder_state_hash():
+    """Calculates a hash based on file names and modification times in the local source_documents/ directory."""
+    logging.info("Checking state of local source_documents/ folder for caching...")
+    if not os.path.isdir(LOCAL_DOCS_DIR):
+        return None
+    
+    hasher = hashlib.sha256()
+    # Sort files by name for a consistent hash
+    files = sorted(os.listdir(LOCAL_DOCS_DIR))
+    
+    for filename in files:
+        filepath = os.path.join(LOCAL_DOCS_DIR, filename)
+        if os.path.isfile(filepath):
+            # Include filename and modification time in the hash
+            mod_time = os.path.getmtime(filepath)
+            hasher.update(filename.encode('utf-8'))
+            hasher.update(str(mod_time).encode('utf-8'))
+            
+    return hasher.hexdigest()
 
 def read_cached_hash():
     """Reads the cached metadata hash."""
@@ -124,6 +144,30 @@ def download_and_cache_drive_files(folder_id):
     except Exception as e:
         logging.error(f"Failed to download files from Google Drive: {e}", exc_info=True)
         return []
+
+def load_local_files():
+    """Loads files from the local source_documents/ directory into memory."""
+    logging.info("Loading source documents from local source_documents/ directory...")
+    loaded_files = []
+    if not os.path.isdir(LOCAL_DOCS_DIR):
+        logging.warning("Local 'source_documents/' directory not found.")
+        return []
+    
+    for filename in os.listdir(LOCAL_DOCS_DIR):
+        filepath = os.path.join(LOCAL_DOCS_DIR, filename)
+        if os.path.isfile(filepath):
+            try:
+                with open(filepath, 'rb') as f:
+                    content = f.read()
+                # Determine mime type, default to text/plain
+                mime_type = 'application/pdf' if filename.lower().endswith('.pdf') else 'text/plain'
+                loaded_files.append({"mime_type": mime_type, "data": content, "name": filename})
+                logging.info(f"  - Loaded '{filename}'")
+            except IOError as e:
+                logging.error(f"  - Could not read file '{filename}'. Error: {e}")
+    return loaded_files
+
+# --- Other Helper & Main Pipeline Functions ---
 
 def validate_layouts(layout_mapping):
     """Compares layouts in layouts.yaml with the Google Slides template."""
@@ -221,6 +265,7 @@ def run_slides_generation_from_json():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate workshop slides from source documents.")
     parser.add_argument("--force", action="store_true", help="Force regeneration of JSON files, ignoring the cache.")
+    parser.add_argument("--force-download", action="store_true", help="Force re-download of files from Google Drive.")
     parser.add_argument("--json-only", action="store_true", help="Stop after generating JSON files; do not create Google Slides.")
     args = parser.parse_args()
 
@@ -228,23 +273,43 @@ if __name__ == "__main__":
     
     workshops = load_yaml_config(WORKSHOPS_FILE).get('workshops', [])
     layout_mapping = load_yaml_config(LAYOUTS_FILE)
-    
     validate_layouts(layout_mapping)
-    
-    new_metadata_hash = get_drive_folder_state_hash(SOURCE_DOCS_FOLDER_ID)
-    cached_metadata_hash = read_cached_hash()
 
-    if new_metadata_hash == cached_metadata_hash and not args.force:
-        logging.info("✅ Source folder has not changed. Skipping download and AI generation.")
+    source_docs_in_memory = []
+    
+    # --- NEW: Branching logic for Local vs. Google Drive Mode ---
+    if SOURCE_DOCS_DRIVE_FOLDER_ID:
+        # --- Google Drive Mode ---
+        logging.info("Google Drive Folder ID detected. Running in Google Drive Mode.")
+        new_hash = get_drive_folder_state_hash(SOURCE_DOCS_DRIVE_FOLDER_ID)
+        cached_hash = read_cached_hash()
+
+        if new_hash == cached_hash and not args.force_download and not args.force:
+            logging.info("✅ Google Drive folder has not changed. Loading documents from local cache.")
+            source_docs_in_memory = load_local_files()
+        else:
+            if args.force_download: logging.info("--force-download flag detected.")
+            source_docs_in_memory = download_and_cache_drive_files(SOURCE_DOCS_DRIVE_FOLDER_ID)
+            # We get a new hash from the freshly downloaded local files
+            new_hash = get_local_folder_state_hash()
+    else:
+        # --- Local Mode (Default) ---
+        logging.info("No Google Drive Folder ID found. Running in Local Mode.")
+        new_hash = get_local_folder_state_hash()
+        cached_hash = read_cached_hash()
+        source_docs_in_memory = load_local_files()
+
+    # --- Caching and Generation Logic ---
+    if new_hash == cached_hash and not args.force:
+        logging.info("✅ Source content has not changed. Skipping AI generation.")
         logging.info("   To override, run with the --force flag.")
     else:
-        source_docs_in_memory = download_and_cache_drive_files(SOURCE_DOCS_FOLDER_ID)
         if not source_docs_in_memory:
             logging.warning("No source documents found. Cannot proceed with generation.")
         else:
             clean_json_source_directory()
             generate_json_files(source_docs_in_memory, workshops)
-            write_cache_hash(new_metadata_hash)
+            write_cache_hash(new_hash)
     
     if args.json_only:
         logging.info("✅ --json-only flag detected. Halting pipeline before slide generation.")

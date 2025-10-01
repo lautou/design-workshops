@@ -2,16 +2,20 @@
 
 This project provides a powerful, fully automated pipeline to generate branded Google Slides presentations from a collection of source documents. It uses Gemini via the Vertex AI API to act as a technical content curator, generating a structured JSON representation of the slide deck, including references to relevant images within your documents.
 
-The pipeline is designed to be robust, maintainable, and developer-friendly, with features like efficient caching and fine-grained execution control.
+The pipeline is designed to be robust and flexible, supporting both local file workflows and a more advanced integration with Google Drive.
 
 ## **Features**
 
-- **Structured JSON Workflow**: The AI generates a clean, structured JSON file, not Markdown. This eliminates parsing errors and creates a reliable "contract" between the AI and the slide generation script.
+- **Flexible Document Sourcing**:
+  - **Local Mode (Default):** Simply place your PDF and AsciiDoc files in the source_documents/ directory to get started immediately.
+  - **Google Drive Mode (Optional):** Provide a Google Drive folder ID to have the pipeline automatically download and sync your source documents.
+- **Structured JSON Workflow**: The AI generates a clean, structured JSON file, making the pipeline reliable and eliminating parsing errors.
 - **AI-Powered Content & Image Curation**: Leverages Gemini to generate all slide text and to identify relevant diagrams in your source PDFs, creating references to them in the generated JSON.
-- **Automated Image Extraction**: A separate utility script reads the generated JSON and automatically extracts the referenced images from your source PDFs into a local directory.
-- **Efficient Metadata Caching**: Avoids unnecessary document downloads and expensive API calls by hashing the metadata of your Google Drive source folder. Regeneration only occurs when your source material actually changes.
-- **Developer Controls**: Includes command-line flags to \--force regeneration (bypassing the cache) and to run in \--json-only mode for quick content validation.
-- **Secure & Unified Authentication**: Uses a single Google Cloud Service Account for secure, non-interactive authentication across all Google Cloud services (Vertex AI, Drive, Slides).
+- **Automated Image Extraction**: A separate utility script reads the generated JSON and automatically extracts the referenced images from your source PDFs.
+- **Efficient Caching**:
+  - **Google Drive Mode:** Avoids unnecessary downloads by hashing the metadata of your Drive folder.
+  - **Both Modes:** Avoids expensive API calls by hashing the state of your local source files, only re-running the AI when content actually changes.
+- **Developer Controls**: Includes flags to \--force regeneration, \--force-download from Drive, and run in \--json-only mode for quick content validation.
 
 ## **Pipeline Overview**
 
@@ -90,29 +94,22 @@ Follow these steps to set up the environment.
 
 ## **Usage and Development Workflow**
 
-The pipeline is controlled via the new run.sh script, which is a simple wrapper for run_pipeline.py.
+The pipeline is controlled via the run.sh script, which passes commands to the main run_pipeline.py orchestrator.
 
-### **Recommended Development Workflow**
+### **Local Mode (Default)**
 
-This workflow allows you to iterate on the AI prompt and curate the content efficiently.
+This is the simplest way to use the tool.
 
-Step 1: Generate the JSON Content  
-Use the \--force flag to ensure you're getting fresh output based on your latest prompt changes, and \--json-only to stop before the slower slide-building step.  
-\# Make sure the virtual environment is active  
-source .venv/bin/activate
+1. Place your source .pdf and .adoc files into the source_documents/ directory.
+2. Run the pipeline.  
+   ./run.sh \--json-only
 
-\# Force a new AI run and stop after creating the JSON file(s)  
-./run.sh \--force \--json-only
+3. Review the output in json_source/. Once you are happy, run the image extraction and the full pipeline.
 
-Step 2: Review and Curate  
-Inspect the generated .json file(s) in the json_source/ directory. Check if the text is correct and if the imageReference blocks are present and accurate. If not, refine your master prompt (gemini-prompt-generate-json.md) and repeat Step 1\.  
-Step 3: Extract Images  
-Once you are happy with the JSON, run the image extraction script. This step requires a local copy of your source PDFs in a source_documents/ directory for the script to access.  
-\# (First, ensure source_documents/ contains your PDFs)  
-python3 extract_images.py
+### **Google Drive Mode (Optional)**
 
-Check the extracted_images/ directory to ensure the correct diagrams were pulled.
+This mode is ideal for collaborative or remote workflows.
 
-Step 4: Generate the Final Slides  
-When the JSON and images are validated, run the full pipeline without the \--json-only flag. It will use the cached content from your last run to quickly build the final presentations.  
-./run.sh
+1. Make sure your .env file contains the SOURCE_DOCUMENTS_DRIVE_FOLDER_ID.
+2. Run the pipeline. The script will automatically download the files from Google Drive into the source_documents/ directory.  
+   ./run.sh \--json-only

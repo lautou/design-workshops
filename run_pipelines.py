@@ -40,7 +40,8 @@ try:
     PROMPT_TEMPLATE_FILE = "gemini-prompt-generate-json.md"
     WORKSHOPS_FILE = "workshops.yaml"
     LAYOUTS_FILE = "layouts.yaml"
-    SOURCE_DIR = "json_source"
+    JSON_SOURCE_DIR = "json_source"
+    LOCAL_DOCS_DIR = "source_documents" # For image extraction
     CACHE_INFO_FILE = ".cache_info.json"
 except KeyError as e:
     logging.critical(f"FATAL: Missing required configuration in .env file: {e}")
@@ -55,12 +56,19 @@ creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FI
 drive_service = build("drive", "v3", credentials=creds)
 slides_service = build("slides", "v1", credentials=creds)
 
-# --- Caching, Validation, and Helper functions ---
+# --- Caching & Metadata Functions ---
+
 def get_drive_folder_state_hash(folder_id):
+    """Fetches file metadata from a Drive folder and returns a hash of that metadata."""
     logging.info("Checking state of Google Drive source folder for caching...")
     try:
         query = f"'{folder_id}' in parents and trashed=false"
-        results = drive_service.files().list(q=query, fields="files(id, name, modifiedTime)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+        results = drive_service.files().list(
+            q=query,
+            fields="files(id, name, modifiedTime)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
         items = results.get('files', [])
         if not items:
             logging.warning("No files found in the source Google Drive folder.")
@@ -73,21 +81,33 @@ def get_drive_folder_state_hash(folder_id):
         return None
 
 def read_cached_hash():
+    """Reads the cached metadata hash."""
     if not os.path.exists(CACHE_INFO_FILE): return None
     try:
         with open(CACHE_INFO_FILE, 'r') as f: return json.load(f).get('metadata_hash')
     except (json.JSONDecodeError, IOError): return None
 
 def write_cache_hash(new_hash):
+    """Writes the new metadata hash."""
     try:
         with open(CACHE_INFO_FILE, 'w') as f:
             json.dump({'metadata_hash': new_hash}, f, indent=2)
             logging.info(f"Updated cache with new hash: {new_hash[:10]}...")
     except IOError as e: logging.error(f"Could not write to cache file: {e}")
 
-def download_files_from_drive_folder(folder_id):
-    downloaded_files = []
-    logging.info(f"Change detected. Downloading source documents from Google Drive folder: {folder_id}...")
+# --- Google API & File Helper Functions ---
+
+def download_and_cache_drive_files(folder_id):
+    """
+    Downloads files from Drive, saves them to a local cache directory for image
+    extraction, and returns them in-memory for the AI.
+    """
+    downloaded_files_in_memory = []
+    logging.info(f"Change detected. Downloading source documents from Google Drive...")
+    
+    # Ensure local cache directory exists
+    os.makedirs(LOCAL_DOCS_DIR, exist_ok=True)
+
     try:
         query = f"'{folder_id}' in parents and trashed=false"
         results = drive_service.files().list(q=query, fields="files(id, name, mimeType)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
@@ -99,8 +119,17 @@ def download_files_from_drive_folder(folder_id):
             downloader = MediaIoBaseDownload(file_stream, request)
             done = False
             while not done: status, done = downloader.next_chunk()
-            downloaded_files.append({"mime_type": item['mimeType'], "data": file_stream.getvalue(), "name": item['name']})
-        return downloaded_files
+            file_content = file_stream.getvalue()
+            
+            # 1. Add to in-memory list for AI
+            downloaded_files_in_memory.append({"mime_type": item['mimeType'], "data": file_content, "name": item['name']})
+            
+            # 2. Save to local disk for image extractor
+            local_path = os.path.join(LOCAL_DOCS_DIR, item['name'])
+            with open(local_path, 'wb') as f:
+                f.write(file_content)
+
+        return downloaded_files_in_memory
     except Exception as e:
         logging.error(f"Failed to download files from Google Drive: {e}", exc_info=True)
         return []
@@ -135,7 +164,7 @@ def clean_json_source_directory():
         if f.endswith(".json") or f.endswith(".error.txt"):
             os.remove(os.path.join(SOURCE_DIR, f))
 
-# --- Main Pipeline Functions (with Error Handling) ---
+# --- Main Pipeline Functions ---
 
 def generate_json_files(source_documents, workshops):
     """Loops through workshops, calls Gemini, and saves the output with graceful error handling."""
@@ -211,8 +240,8 @@ def run_slides_generation_from_json():
 # --- Main Execution ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate workshop slides from source documents.")
-    parser.add_argument("--force", action="store_true", help="Force regeneration of JSON files, ignoring the cache.")
-    parser.add_argument("--json-only", action="store_true", help="Stop after generating JSON files; do not create Google Slides.")
+    parser.add_argument("--force", action="store_true", help="Force regeneration, ignoring the cache.")
+    parser.add_argument("--json-only", action="store_true", help="Stop after generating JSON files.")
     args = parser.parse_args()
 
     logging.info("--- Starting Generation Pipeline ---")
@@ -229,10 +258,15 @@ if __name__ == "__main__":
         logging.info("✅ Source folder has not changed. Skipping download and AI generation.")
         logging.info("   To override, run with the --force flag.")
     else:
-        source_docs = download_files_from_drive_folder(SOURCE_DOCS_FOLDER_ID)
-        clean_json_source_directory()
-        generate_json_files(source_docs, workshops)
-        write_cache_hash(new_metadata_hash)
+        # This is the key step: download once, use for both AI and local caching.
+        source_docs_in_memory = download_and_cache_drive_files(SOURCE_DOCS_FOLDER_ID)
+        
+        if not source_docs_in_memory:
+            logging.warning("No source documents found. Cannot proceed with generation.")
+        else:
+            clean_json_source_directory()
+            generate_json_files(source_docs_in_memory, workshops)
+            write_cache_hash(new_metadata_hash)
     
     if args.json_only:
         logging.info("✅ --json-only flag detected. Halting pipeline before slide generation.")

@@ -104,10 +104,7 @@ def download_and_cache_drive_files(folder_id):
     """
     downloaded_files_in_memory = []
     logging.info(f"Change detected. Downloading source documents from Google Drive...")
-    
-    # Ensure local cache directory exists
     os.makedirs(LOCAL_DOCS_DIR, exist_ok=True)
-
     try:
         query = f"'{folder_id}' in parents and trashed=false"
         results = drive_service.files().list(q=query, fields="files(id, name, mimeType)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
@@ -120,21 +117,16 @@ def download_and_cache_drive_files(folder_id):
             done = False
             while not done: status, done = downloader.next_chunk()
             file_content = file_stream.getvalue()
-            
-            # 1. Add to in-memory list for AI
             downloaded_files_in_memory.append({"mime_type": item['mimeType'], "data": file_content, "name": item['name']})
-            
-            # 2. Save to local disk for image extractor
             local_path = os.path.join(LOCAL_DOCS_DIR, item['name'])
-            with open(local_path, 'wb') as f:
-                f.write(file_content)
-
+            with open(local_path, 'wb') as f: f.write(file_content)
         return downloaded_files_in_memory
     except Exception as e:
         logging.error(f"Failed to download files from Google Drive: {e}", exc_info=True)
         return []
 
 def validate_layouts(layout_mapping):
+    """Compares layouts in layouts.yaml with the Google Slides template."""
     logging.info(f"Validating layouts in '{LAYOUTS_FILE}' against template '{TEMPLATE_PRESENTATION_ID}'...")
     try:
         presentation = slides_service.presentations().get(presentationId=TEMPLATE_PRESENTATION_ID).execute()
@@ -151,6 +143,7 @@ def validate_layouts(layout_mapping):
         sys.exit(1)
 
 def load_yaml_config(filepath):
+    """Loads a YAML file."""
     try:
         with open(filepath, 'r') as f: return yaml.safe_load(f)
     except FileNotFoundError:
@@ -158,11 +151,12 @@ def load_yaml_config(filepath):
         sys.exit(1)
 
 def clean_json_source_directory():
-    if not os.path.exists(SOURCE_DIR): os.makedirs(SOURCE_DIR)
-    logging.info(f"Cleaning the '{SOURCE_DIR}' directory...")
-    for f in os.listdir(SOURCE_DIR):
+    """Removes old .json and .error.txt files."""
+    if not os.path.exists(JSON_SOURCE_DIR): os.makedirs(JSON_SOURCE_DIR)
+    logging.info(f"Cleaning the '{JSON_SOURCE_DIR}' directory...")
+    for f in os.listdir(JSON_SOURCE_DIR):
         if f.endswith(".json") or f.endswith(".error.txt"):
-            os.remove(os.path.join(SOURCE_DIR, f))
+            os.remove(os.path.join(JSON_SOURCE_DIR, f))
 
 # --- Main Pipeline Functions ---
 
@@ -185,8 +179,8 @@ def generate_json_files(source_documents, workshops):
         title = workshop['title']
         clean_title = re.sub(r'[^a-z0-9\s-]', '', title.lower()).replace(' ', '-')
         base_filename = f"{i+1:02d}-{clean_title}"
-        json_output_path = os.path.join(SOURCE_DIR, f"{base_filename}.json")
-        error_output_path = os.path.join(SOURCE_DIR, f"{base_filename}.error.txt")
+        json_output_path = os.path.join(JSON_SOURCE_DIR, f"{base_filename}.json")
+        error_output_path = os.path.join(JSON_SOURCE_DIR, f"{base_filename}.error.txt")
 
         logging.info(f"Generating JSON for: '{title}' -> {base_filename}.json")
         task_prompt = f"\nCurrent Task:\nGenerate the slide deck for the workshop: \"{title}\"."
@@ -195,37 +189,23 @@ def generate_json_files(source_documents, workshops):
         try:
             logging.info(f"Calling Vertex AI Gemini API with {len(file_parts)} source documents...")
             response = model.generate_content(prompt_parts)
-            
-            # This is the raw text from the AI
             json_content = response.text
-            
-            # This line validates if the text is valid JSON. It will raise an exception if not.
-            json.loads(json_content)
-            
-            # If validation passes, write the good JSON file
-            with open(json_output_path, 'w', encoding='utf-8') as f:
-                f.write(json_content)
+            json.loads(json_content) # Validate that the response is valid JSON
+            with open(json_output_path, 'w', encoding='utf-8') as f: f.write(json_content)
             logging.info(f"Successfully saved JSON to {json_output_path}\n")
-
         except Exception as e:
-            # Catch ANY exception during the API call or JSON parsing
             logging.error(f"❌ Failed to generate or parse JSON for '{title}'. Error: {e}")
-            
-            # Check if we have a response from the AI to save for debugging
             if 'response' in locals() and hasattr(response, 'text'):
                 logging.info(f"   Saving the raw, invalid output to '{error_output_path}' for debugging.")
-                with open(error_output_path, 'w', encoding='utf-8') as f:
-                    f.write(response.text)
+                with open(error_output_path, 'w', encoding='utf-8') as f: f.write(response.text)
             else:
                 logging.error("   No response content was received from the API.")
-
-            # Continue to the next workshop instead of crashing
             continue
 
     logging.info("--- JSON generation complete. ---")
 
-
 def run_slides_generation_from_json():
+    """Executes the build_slides_from_json.py script."""
     script_to_run = "build_slides_from_json.py"
     logging.info(f"--- Starting Google Slides Generation by running '{script_to_run}' ---")
     try:
@@ -240,8 +220,8 @@ def run_slides_generation_from_json():
 # --- Main Execution ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate workshop slides from source documents.")
-    parser.add_argument("--force", action="store_true", help="Force regeneration, ignoring the cache.")
-    parser.add_argument("--json-only", action="store_true", help="Stop after generating JSON files.")
+    parser.add_argument("--force", action="store_true", help="Force regeneration of JSON files, ignoring the cache.")
+    parser.add_argument("--json-only", action="store_true", help="Stop after generating JSON files; do not create Google Slides.")
     args = parser.parse_args()
 
     logging.info("--- Starting Generation Pipeline ---")
@@ -258,9 +238,7 @@ if __name__ == "__main__":
         logging.info("✅ Source folder has not changed. Skipping download and AI generation.")
         logging.info("   To override, run with the --force flag.")
     else:
-        # This is the key step: download once, use for both AI and local caching.
         source_docs_in_memory = download_and_cache_drive_files(SOURCE_DOCS_FOLDER_ID)
-        
         if not source_docs_in_memory:
             logging.warning("No source documents found. Cannot proceed with generation.")
         else:

@@ -1,44 +1,59 @@
-# **Markdown to Google Slides Generator (md2gslides)**
+# **AI-Powered Presentation Generation Pipeline**
 
-This project provides a powerful, fully automated pipeline to generate branded Google Slides presentations. It uses Gemini via the Vertex AI API to create technical content from a prompt and then converts the resulting Markdown into a polished presentation.
+This project provides a powerful, fully automated pipeline to generate branded Google Slides presentations from a collection of source documents. It uses Gemini via the Vertex AI API to act as a technical content curator, generating a structured JSON representation of the slide deck, including references to relevant images within your documents.
 
-It's designed for batch processing, allowing you to convert an entire list of workshop titles into professional-looking presentations with a single command, enforcing brand consistency through the use of a master Google Slides template.
+The pipeline is designed to be robust, maintainable, and developer-friendly, with features like efficient caching and fine-grained execution control.
 
 ## **Features**
 
-- **End-to-End Automation**: A single script (run_pipeline.py) manages the entire workflow from prompt to final presentation.
-- **AI-Powered Content Generation**: Leverages Gemini through the enterprise-grade Vertex AI API to create the initial Markdown content for each presentation.
-- **Efficient Caching**: Avoids unnecessary downloads and API calls by hashing Google Drive file metadata. Regeneration only occurs when source documents actually change.
-- **Developer Controls**: Includes command-line flags to \--force regeneration (bypassing the cache) and to run in \--md-only mode for quick content validation.
-- **Secure Cloud Authentication**: Uses a single Google Cloud Service Account for secure, non-interactive authentication for all Google Cloud services.
-- **Rich Text & Table Formatting**: Automatically converts Markdown into formatted slide content, including bold/italic text, nested lists, and perfectly centered tables.
+- **Structured JSON Workflow**: The AI generates a clean, structured JSON file, not Markdown. This eliminates parsing errors and creates a reliable "contract" between the AI and the slide generation script.
+- **AI-Powered Content & Image Curation**: Leverages Gemini to generate all slide text and to identify relevant diagrams in your source PDFs, creating references to them in the generated JSON.
+- **Automated Image Extraction**: A separate utility script reads the generated JSON and automatically extracts the referenced images from your source PDFs into a local directory.
+- **Efficient Metadata Caching**: Avoids unnecessary document downloads and expensive API calls by hashing the metadata of your Google Drive source folder. Regeneration only occurs when your source material actually changes.
+- **Developer Controls**: Includes command-line flags to \--force regeneration (bypassing the cache) and to run in \--json-only mode for quick content validation.
+- **Secure & Unified Authentication**: Uses a single Google Cloud Service Account for secure, non-interactive authentication across all Google Cloud services (Vertex AI, Drive, Slides).
 
 ## **Pipeline Overview**
 
-The tool operates in a two-stage pipeline orchestrated by the main run_pipeline.py script. It checks for changes in your source documents, generates the markdown, and then builds the final slide deck.
+The project is split into two main stages: Content Generation (managed by run.sh and run_pipeline.py) and Image Extraction (managed by extract_images.py).
+
+**Stage 1: Content Generation (./run.sh)**
 
 \+-------------------------+ \+---------------------------+ \+---------------------------+  
-| Google Drive Folder |-----\>| run_pipeline.py |-----\>| Markdown Files |  
-| (Source Docs & PDFs) | | (Checks Metadata Hash) | | (source_markdown/) |  
+| Google Drive Folder |-----\>| run_pipeline.py |-----\>| JSON Files |  
+| (Source Docs & PDFs) | | (Checks Metadata Hash) | | (in json_source/) |  
 \+-------------------------+ \+---------------------------+ \+---------------------------+  
  ^ |  
  | | (If Hash Mismatch or \--force)  
  | V  
 \+-------------------------+ \+---------------------------+  
 | workshops.yaml |-----\>| Call Vertex AI Gemini |  
-| (Controls which | | (Generates MD Content) |  
+| (Controls which | | (Generates JSON) |  
 | workshops to build) | \+---------------------------+  
 \+-------------------------+ |  
- | (Executes next step)  
+ | (Executes next step, unless \--json-only)  
  V  
 \+-------------------------+ \+---------------------------+ \+---------------------------+  
-| md2gslides.py |-----\>| Google Slides & Drive |-----\>| Generated Presentations |  
-| (Converts MD to Slides) | | APIs | | (In Google Drive) |  
+| build_slides_from_json.py|-----\>| Google Slides & Drive |-----\>| Generated Presentations |  
+| (Converts JSON to Slides)| | APIs | | (In Google Drive) |  
 \+-------------------------+ \+---------------------------+ \+---------------------------+
+
+**Stage 2: Image Extraction (python3 extract_images.py)**
+
+\+-------------------------+ \+---------------------------+ \+---------------------------+  
+| JSON Files |-----\>| extract_images.py |-----\>| Extracted Images |  
+| (in json_source/) | | (Reads imageReference) | | (in extracted_images/) |  
+\+-------------------------+ \+---------------------------+ \+---------------------------+  
+ ^ |  
+ | |  
+\+-------------------------+ |  
+| Source Documents |------------------+  
+| (Local copy for speed) |  
+\+-------------------------+
 
 ## **Setup Guide**
 
-Follow these steps to set up the environment. This involves a one-time setup on Google Cloud, followed by a simple local installation.
+Follow these steps to set up the environment.
 
 ### **Step 1: Google Cloud & Drive Setup (One-Time)**
 
@@ -65,50 +80,39 @@ Follow these steps to set up the environment. This involves a one-time setup on 
 
 ### **Step 2: Local Project Setup**
 
-1. **Clone the Repository**:  
-   git clone \<your-repository-url\>  
-   cd \<your-repository-name\>
-
-2. **Run the Install Script**: This script will create a Python virtual environment, install all dependencies from requirements.txt, and create your local configuration files from the examples.  
+1. **Clone the Repository** and navigate into the directory.
+2. **Run the Install Script**: This creates a Python virtual environment and installs all dependencies from requirements.txt, including PyMuPDF for image extraction.  
    chmod \+x install.sh  
    ./install.sh
 
-3. **Configure Your Project**:
-   - **Service Account**: Place your downloaded JSON key file into the project's root directory and rename it to service-account.json.
-   - **.env file**: Open the newly created .env file and fill in all the required values based on your Google Cloud and Drive setup.
-   - **layouts.yaml**: Open layouts.yaml and adjust the mappings to match the "Display names" of the layouts in your specific Google Slides template.
+3. **Configure .env**: Fill in all the required values in your .env file (Project ID, folder IDs, etc.).
+4. **Configure workshops.yaml**: Edit this file to control which workshops you want to generate by setting enabled: true or enabled: false.
 
-## **Usage**
+## **Usage and Development Workflow**
 
-The pipeline is controlled via the run_pipeline.py script, which now accepts command-line arguments for development flexibility.
+The pipeline is controlled via the new run.sh script, which is a simple wrapper for run_pipeline.py.
 
-### **Basic Run**
+### **Recommended Development Workflow**
 
-This command will use the efficient caching. It will only download documents and run the AI generation if it detects a change in the source Google Drive folder.
+This workflow allows you to iterate on the AI prompt and curate the content efficiently.
 
-\# Ensure your virtual environment is active  
+Step 1: Generate the JSON Content  
+Use the \--force flag to ensure you're getting fresh output based on your latest prompt changes, and \--json-only to stop before the slower slide-building step.  
+\# Make sure the virtual environment is active  
 source .venv/bin/activate
 
-\# Run the full pipeline with caching enabled  
-python3 run_pipeline.py
+\# Force a new AI run and stop after creating the JSON file(s)  
+./run.sh \--force \--json-only
 
-### **Development Options**
+Step 2: Review and Curate  
+Inspect the generated .json file(s) in the json_source/ directory. Check if the text is correct and if the imageReference blocks are present and accurate. If not, refine your master prompt (gemini-prompt-generate-json.md) and repeat Step 1\.  
+Step 3: Extract Images  
+Once you are happy with the JSON, run the image extraction script. This step requires a local copy of your source PDFs in a source_documents/ directory for the script to access.  
+\# (First, ensure source_documents/ contains your PDFs)  
+python3 extract_images.py
 
-These flags are essential when you are curating the AI prompt and validating the output.
+Check the extracted_images/ directory to ensure the correct diagrams were pulled.
 
-**1\. Force Regeneration (--force)**
-
-Use this when you have updated your prompt (gemini-prompt-generate-md-files.md) and want to regenerate the Markdown, even if your source documents in Google Drive have not changed.
-
-python3 run_pipeline.py \--force
-
-**2\. Markdown Only (--md-only)**
-
-Use this to run only the AI generation stage and stop before creating the Google Slides. This is very useful for quickly checking the quality of the generated .md files.
-
-python3 run_pipeline.py \--md-only
-
-You can also combine these flags:
-
-\# Force a regeneration of the Markdown, but don't create the slides yet  
-python3 run_pipeline.py \--force \--md-only
+Step 4: Generate the Final Slides  
+When the JSON and images are validated, run the full pipeline without the \--json-only flag. It will use the cached content from your last run to quickly build the final presentations.  
+./run.sh

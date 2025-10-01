@@ -60,7 +60,8 @@ Your entire output MUST be a single JSON code block. Adhere strictly to this sch
 * **`layoutClass`**: Must correspond to a class in the `layouts.yaml` file.  
 * **`body` vs. `table` Exclusivity:** A single slide object MUST contain either a `body` field or a `table` field, but **NEVER BOTH**.  
 * **Visible Content Conciseness:** Text in `title`, `subtitle`, `body`, and `table` fields MUST be extremely concise.  
-* **Speaker Notes:** ALL detailed explanations, narratives, and context belong exclusively in the `speakerNotes` string.
+* **Speaker Notes:** ALL detailed explanations, narratives, and context belong exclusively in the `speakerNotes` string.  
+* **Citation Tag Placement (CRITICAL):** All citation tags (e.g., `[cite_start]`, `[cite: XX]`) MUST be placed **inside** the string values of the JSON fields (e.g., inside a `body` or `speakerNotes` string), never outside the quotes.
 
 **8\. Handling Images and Diagrams (PRIORITY)**
 
@@ -91,5 +92,5 @@ Your entire output MUST be a single JSON code block. Adhere strictly to this sch
 
 **10\. Final Output**
 
-Generate nothing but the JSON object inside a single `json` code block.
+Generate nothing but the JSON object inside a single ```` ```json ```` code block.
 

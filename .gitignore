@@ -1,5 +1,6 @@
+.cache_info.json
 *.log
-source_documents/*
+extracted_images/*
 json_source/*
 service-account.json
-.cache_info.json
+source_documents/*

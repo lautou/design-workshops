@@ -18,6 +18,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- Configuration & Setup ---
+# All setup remains the same, as we need the services for layout validation etc.
 load_dotenv()
 
 logging.basicConfig(
@@ -30,13 +31,12 @@ logging.basicConfig(
 )
 
 try:
-    # Configs from .env file
+    # All configs are still needed for validation and downstream steps
     PROJECT_ID = os.environ['GOOGLE_CLOUD_PROJECT_ID']
     LOCATION = os.environ['GOOGLE_CLOUD_LOCATION']
+    SOURCE_DOCS_DRIVE_FOLDER_ID = os.environ.get('SOURCE_DOCUMENTS_DRIVE_FOLDER_ID')
     TEMPLATE_PRESENTATION_ID = os.environ['TEMPLATE_PRESENTATION_ID']
     SERVICE_ACCOUNT_FILE = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
-    SOURCE_DOCS_DRIVE_FOLDER_ID = os.environ.get('SOURCE_DOCUMENTS_DRIVE_FOLDER_ID')
-    # Script file configs
     PROMPT_TEMPLATE_FILE = "gemini-prompt-generate-json.md"
     WORKSHOPS_FILE = "workshops.yaml"
     LAYOUTS_FILE = "layouts.yaml"
@@ -48,9 +48,14 @@ except KeyError as e:
     sys.exit(1)
 
 # Initialize API Services
-vertexai.init(project=PROJECT_ID, location=LOCATION)
-json_model_config = GenerationConfig(response_mime_type="application/json")
-model = GenerativeModel("gemini-1.5-flash-001", generation_config=json_model_config)
+# We still initialize VertexAI to catch the billing error gracefully if not using --show-prompt
+try:
+    vertexai.init(project=PROJECT_ID, location=LOCATION)
+    json_model_config = GenerationConfig(response_mime_type="application/json")
+    model = GenerativeModel("gemini-1.5-flash-001", generation_config=json_model_config)
+except Exception:
+    model = None # If it fails, we can still run in --show-prompt mode
+
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/presentations.readonly"]
 creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 drive_service = build("drive", "v3", credentials=creds)
@@ -267,11 +272,51 @@ if __name__ == "__main__":
     parser.add_argument("--force", action="store_true", help="Force regeneration of JSON files, ignoring the cache.")
     parser.add_argument("--force-download", action="store_true", help="Force re-download of files from Google Drive.")
     parser.add_argument("--json-only", action="store_true", help="Stop after generating JSON files; do not create Google Slides.")
+    # --- NEW FEATURE ---
+    parser.add_argument("--show-prompt", action="store_true", help="Build and print the full prompt for manual use, then exit.")
     args = parser.parse_args()
 
     logging.info("--- Starting Generation Pipeline ---")
     
     workshops = load_yaml_config(WORKSHOPS_FILE).get('workshops', [])
+    
+    # --- NEW: --show-prompt Logic ---
+    if args.show_prompt:
+        logging.info("✅ --show-prompt flag detected. Building the prompt for manual execution...")
+        
+        enabled_workshops = [w for w in workshops if w.get('enabled', False)]
+        if not enabled_workshops:
+            logging.error("No workshop is enabled in workshops.yaml. Cannot build prompt.")
+            sys.exit(1)
+        if len(enabled_workshops) > 1:
+            logging.warning("Multiple workshops enabled. The prompt will be built for the first one only.")
+        
+        workshop = enabled_workshops[0]
+        title = workshop['title']
+        
+        try:
+            with open(PROMPT_TEMPLATE_FILE, 'r', encoding='utf-8') as f: base_prompt_template = f.read()
+        except FileNotFoundError:
+            logging.critical(f"FATAL: Prompt template not found at '{PROMPT_TEMPLATE_FILE}'"); sys.exit(1)
+            
+        all_workshop_titles = [f"* {w['title']}" for w in workshops]
+        workshop_roadmap_str = "\n".join(all_workshop_titles)
+        base_prompt = base_prompt_template.replace("{{WORKSHOP_ROADMAP}}", workshop_roadmap_str)
+        task_prompt = f"\nCurrent Task:\nGenerate the slide deck for the workshop: \"{title}\"."
+        
+        final_prompt = base_prompt + task_prompt
+        
+        print("\n" + "="*80)
+        print("COPY AND PASTE THE FOLLOWING PROMPT INTO THE GEMINI UI")
+        print("Make sure you have uploaded your source PDF/ADOC files first.")
+        print("="*80 + "\n")
+        print(final_prompt)
+        print("\n" + "="*80)
+        
+        logging.info("Prompt has been printed to the console. Exiting.")
+        sys.exit(0)
+    
+    # --- Existing Pipeline Logic ---
     layout_mapping = load_yaml_config(LAYOUTS_FILE)
     validate_layouts(layout_mapping)
 

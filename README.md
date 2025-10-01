@@ -1,59 +1,48 @@
 # **AI-Powered Presentation Generation Pipeline**
 
-This project provides a powerful, fully automated pipeline to generate branded Google Slides presentations from a collection of source documents. It uses Gemini via the Vertex AI API to act as a technical content curator, generating a structured JSON representation of the slide deck, including references to relevant images within your documents.
+This project provides a powerful, semi-automated pipeline to generate branded Google Slides presentations from a collection of source documents. It uses Gemini to act as a technical content curator, generating a structured JSON representation of the slide deck, which is then used by local scripts to build the final presentation.
 
-The pipeline is designed to be robust and flexible, supporting both local file workflows and a more advanced integration with Google Drive.
+The pipeline is designed to be robust and developer-friendly, with a "prompt-builder" mode to accommodate environments where direct API access is not available.
 
 ## **Features**
 
-- **Flexible Document Sourcing**:
-  - **Local Mode (Default):** Simply place your PDF and AsciiDoc files in the source_documents/ directory to get started immediately.
-  - **Google Drive Mode (Optional):** Provide a Google Drive folder ID to have the pipeline automatically download and sync your source documents.
+- **Semi-Automated Workflow**: Includes a "prompt builder" mode that generates the perfect, context-rich prompt for manual execution in the Gemini web UI.
 - **Structured JSON Workflow**: The AI generates a clean, structured JSON file, making the pipeline reliable and eliminating parsing errors.
 - **AI-Powered Content & Image Curation**: Leverages Gemini to generate all slide text and to identify relevant diagrams in your source PDFs, creating references to them in the generated JSON.
 - **Automated Image Extraction**: A separate utility script reads the generated JSON and automatically extracts the referenced images from your source PDFs.
-- **Efficient Caching**:
-  - **Google Drive Mode:** Avoids unnecessary downloads by hashing the metadata of your Drive folder.
-  - **Both Modes:** Avoids expensive API calls by hashing the state of your local source files, only re-running the AI when content actually changes.
-- **Developer Controls**: Includes flags to \--force regeneration, \--force-download from Drive, and run in \--json-only mode for quick content validation.
+- **Code-Based Validation**: Performs validation of your slide layouts against your Google Slides template _before_ you run the prompt, preventing errors.
+- **Secure & Unified Authentication**: Uses a single Google Cloud Service Account for all necessary API interactions (layout validation, slide building).
 
 ## **Pipeline Overview**
 
-The project is split into two main stages: Content Generation (managed by run.sh and run_pipeline.py) and Image Extraction (managed by extract_images.py).
+The project is now split into a manual generation step and an automated build step.
 
-**Stage 1: Content Generation (./run.sh)**
+**Stage 1: Prompt Generation & Manual Execution**
 
-\+-------------------------+ \+---------------------------+ \+---------------------------+  
-| Google Drive Folder |-----\>| run_pipeline.py |-----\>| JSON Files |  
-| (Source Docs & PDFs) | | (Checks Metadata Hash) | | (in json_source/) |  
-\+-------------------------+ \+---------------------------+ \+---------------------------+  
- ^ |  
- | | (If Hash Mismatch or \--force)  
- | V  
-\+-------------------------+ \+---------------------------+  
-| workshops.yaml |-----\>| Call Vertex AI Gemini |  
-| (Controls which | | (Generates JSON) |  
-| workshops to build) | \+---------------------------+  
-\+-------------------------+ |  
- | (Executes next step, unless \--json-only)  
+\+---------------------------+ \+-------------------------+ \+---------------------------+  
+| run_pipeline.py |-----\>| User Console |-----\>| Gemini Web UI |  
+| (with \--show-prompt) | | (Displays full prompt) | | (User uploads files |  
+\+---------------------------+ \+-------------------------+ | & pastes prompt) |  
+ \+-------------+-------------+  
+ |  
+ | (User copies JSON output)  
  V  
-\+-------------------------+ \+---------------------------+ \+---------------------------+  
-| build_slides_from_json.py|-----\>| Google Slides & Drive |-----\>| Generated Presentations |  
-| (Converts JSON to Slides)| | APIs | | (In Google Drive) |  
-\+-------------------------+ \+---------------------------+ \+---------------------------+
+ \+---------------------------+  
+ | JSON Files |  
+ | (User saves to json_source/) |  
+ \+---------------------------+
 
-**Stage 2: Image Extraction (python3 extract_images.py)**
+**Stage 2: Automated Build & Extraction (./run.sh or manual script calls)**
 
 \+-------------------------+ \+---------------------------+ \+---------------------------+  
 | JSON Files |-----\>| extract_images.py |-----\>| Extracted Images |  
 | (in json_source/) | | (Reads imageReference) | | (in extracted_images/) |  
+\+-------------------------+ \+---------------------------+ \+---------------------------+
+
 \+-------------------------+ \+---------------------------+ \+---------------------------+  
- ^ |  
- | |  
-\+-------------------------+ |  
-| Source Documents |------------------+  
-| (Local copy for speed) |  
-\+-------------------------+
+| JSON Files |-----\>| build_slides_from_json.py |-----\>| Generated Presentations |  
+| (in json_source/) | | (Builds slides) | | (In Google Drive) |  
+\+-------------------------+ \+---------------------------+ \+---------------------------+
 
 ## **Setup Guide**
 
@@ -92,24 +81,40 @@ Follow these steps to set up the environment.
 3. **Configure .env**: Fill in all the required values in your .env file (Project ID, folder IDs, etc.).
 4. **Configure workshops.yaml**: Edit this file to control which workshops you want to generate by setting enabled: true or enabled: false.
 
-## **Usage and Development Workflow**
+## **Usage: The Semi-Automated Workflow**
 
-The pipeline is controlled via the run.sh script, which passes commands to the main run_pipeline.py orchestrator.
+Due to limitations on programmatic API access, this workflow allows you to leverage the pipeline's intelligence by preparing a perfect prompt for manual execution.
 
-### **Local Mode (Default)**
+### **Step 1: Prepare the Prompt**
 
-This is the simplest way to use the tool.
+Use the \--show-prompt flag. The script will read your workshops.yaml file, construct the full, context-rich prompt for the first enabled workshop, and print it to your console.
 
-1. Place your source .pdf and .adoc files into the source_documents/ directory.
-2. Run the pipeline.  
-   ./run.sh \--json-only
+\# Make sure the virtual environment is active  
+source .venv/bin/activate
 
-3. Review the output in json_source/. Once you are happy, run the image extraction and the full pipeline.
+\# Generate the prompt for the first enabled workshop in workshops.yaml  
+./run.sh \--show-prompt
 
-### **Google Drive Mode (Optional)**
+### **Step 2: Generate JSON in the Gemini UI**
 
-This mode is ideal for collaborative or remote workflows.
+1. Go to your corporate Gemini web UI (e.g., gemini.google.com).
+2. **Upload your source files.** Use the file attachment feature to upload all the relevant .pdf and .adoc documents.
+3. **Copy and paste** the entire prompt from your console output into the Gemini chat box.
+4. Submit the prompt. Gemini will process your files and generate the JSON output.
 
-1. Make sure your .env file contains the SOURCE_DOCUMENTS_DRIVE_FOLDER_ID.
-2. Run the pipeline. The script will automatically download the files from Google Drive into the source_documents/ directory.  
-   ./run.sh \--json-only
+### **Step 3: Save the JSON Output**
+
+1. **Copy** the complete JSON code block from the Gemini UI.
+2. **Save** this content to a new file inside your local json_source/ directory. Give it a descriptive name (e.g., 01-basic-concepts.json).
+
+### **Step 4: Extract Images and Build Slides**
+
+Now that you have the curated JSON locally, you can use the automated downstream scripts.
+
+1. **Extract Images:**  
+   python3 extract_images.py
+
+   Check the extracted_images/ directory to ensure the diagrams were pulled correctly.
+
+2. **Build the Final Slides:** Run the build_slides_from_json.py script.  
+   python3 build_slides_from_json.py

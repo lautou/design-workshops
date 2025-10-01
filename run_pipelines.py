@@ -30,12 +30,14 @@ try:
     # Vertex AI Config
     PROJECT_ID = os.environ['GOOGLE_CLOUD_PROJECT_ID']
     LOCATION = os.environ['GOOGLE_CLOUD_LOCATION']
-    # Google Drive Config
+    # Google Drive & Slides Config
     SOURCE_DOCS_FOLDER_ID = os.environ['SOURCE_DOCUMENTS_DRIVE_FOLDER_ID']
+    TEMPLATE_PRESENTATION_ID = os.environ['TEMPLATE_PRESENTATION_ID']
     SERVICE_ACCOUNT_FILE = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
     # Script Config
     PROMPT_TEMPLATE_FILE = "gemini-prompt-generate-md-files.md"
     WORKSHOPS_FILE = "workshops.yaml"
+    LAYOUTS_FILE = "layouts.yaml"
     SOURCE_DIR = os.environ.get('SOURCE_DIRECTORY', 'markdown_source')
 except KeyError as e:
     logging.critical(f"FATAL: Missing required configuration in .env file: {e}")
@@ -45,12 +47,16 @@ except KeyError as e:
 vertexai.init(project=PROJECT_ID, location=LOCATION)
 model = GenerativeModel("gemini-1.5-flash-001")
 
-# Initialize Google Drive Service
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+# Initialize Google API Services
+SCOPES = [
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/presentations.readonly"
+]
 creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 drive_service = build("drive", "v3", credentials=creds)
+slides_service = build("slides", "v1", credentials=creds)
 
-# --- Google Drive Helper Functions ---
+# --- Google API Helper Functions ---
 
 def download_files_from_drive_folder(folder_id):
     """Downloads all files from a Google Drive folder into memory."""
@@ -89,15 +95,49 @@ def download_files_from_drive_folder(folder_id):
         logging.error(f"Failed to download files from Google Drive: {e}", exc_info=True)
         return []
 
+def validate_layouts(layout_mapping):
+    """
+    Connects to the Google Slides API to validate that layouts in the YAML
+    file exist in the master template.
+    """
+    logging.info(f"Validating layouts in '{LAYOUTS_FILE}' against template '{TEMPLATE_PRESENTATION_ID}'...")
+    try:
+        presentation = slides_service.presentations().get(presentationId=TEMPLATE_PRESENTATION_ID).execute()
+        template_layouts = presentation.get('layouts', [])
+        
+        # Create a set of available layout names for efficient lookup
+        available_layout_names = {
+            layout.get('layoutProperties', {}).get('displayName')
+            for layout in template_layouts
+        }
+
+        mapped_layout_names = set(layout_mapping.values())
+        missing_layouts = mapped_layout_names - available_layout_names
+
+        if missing_layouts:
+            logging.critical("FATAL: Layout validation failed!")
+            logging.critical(f"The following layouts are defined in '{LAYOUTS_FILE}' but were NOT FOUND in the Google Slides template:")
+            for layout in sorted(list(missing_layouts)):
+                logging.critical(f"  - {layout}")
+            sys.exit(1)
+        
+        logging.info("✅ Layout validation successful. All mapped layouts exist in the template.")
+        return True
+
+    except Exception as e:
+        logging.critical(f"FATAL: An error occurred during layout validation: {e}")
+        sys.exit(1)
+
+
 # --- Main Pipeline Functions ---
 
-def load_workshops():
-    """Loads workshop definitions from the YAML file."""
+def load_yaml_config(filepath):
+    """Loads a specified YAML file."""
     try:
-        with open(WORKSHOPS_FILE, 'r') as f:
-            return yaml.safe_load(f).get('workshops', [])
+        with open(filepath, 'r') as f:
+            return yaml.safe_load(f)
     except FileNotFoundError:
-        logging.critical(f"FATAL: Workshop file not found at '{WORKSHOPS_FILE}'")
+        logging.critical(f"FATAL: Configuration file not found at '{filepath}'")
         sys.exit(1)
 
 def clean_source_directory():
@@ -109,9 +149,6 @@ def clean_source_directory():
             os.remove(os.path.join(SOURCE_DIR, f))
 
 def generate_markdown_files(source_documents, workshops):
-    """
-    Loops through enabled workshops, dynamically constructs prompts, calls Gemini, and saves the markdown.
-    """
     logging.info("--- Starting Markdown Generation via Gemini (Vertex AI) ---")
     try:
         with open(PROMPT_TEMPLATE_FILE, 'r', encoding='utf-8') as f:
@@ -120,14 +157,9 @@ def generate_markdown_files(source_documents, workshops):
         logging.critical(f"FATAL: Prompt template not found: '{PROMPT_TEMPLATE_FILE}'")
         sys.exit(1)
 
-    # --- DYNAMIC PROMPT INJECTION ---
-    # Create the workshop roadmap string from the single source of truth (workshops.yaml)
     all_workshop_titles = [f"* {w['title']}" for w in workshops]
     workshop_roadmap_str = "\n".join(all_workshop_titles)
-    
-    # Inject the dynamic roadmap into the prompt template
     base_prompt = base_prompt_template.replace("{{WORKSHOP_ROADMAP}}", workshop_roadmap_str)
-    # --- END DYNAMIC PROMPT INJECTION ---
 
     file_parts = [Part.from_data(d['data'], mime_type=d['mime_type']) for d in source_documents]
     enabled_workshops = [w for w in workshops if w.get('enabled', False)]
@@ -139,7 +171,6 @@ def generate_markdown_files(source_documents, workshops):
         output_path = os.path.join(SOURCE_DIR, filename)
 
         logging.info(f"Generating markdown for: '{title}' -> {filename}")
-        
         task_prompt = f"\nCurrent Task:\nGenerate the slide deck for the workshop: \"{title}\"."
         prompt_parts = [base_prompt, task_prompt] + file_parts
 
@@ -157,8 +188,8 @@ def generate_markdown_files(source_documents, workshops):
             logging.error(f"Error calling Vertex AI for '{title}': {e}", exc_info=True)
             logging.warning(f"Skipping file creation for '{title}'.\n")
             continue
-
     logging.info("--- Markdown generation complete for all enabled workshops. ---")
+
 
 def run_slides_generation():
     """Executes the md2gslides.py script."""
@@ -183,16 +214,25 @@ def run_slides_generation():
 if __name__ == "__main__":
     logging.info("--- Starting Generation Pipeline ---")
     
-    workshops_to_run = load_workshops()
+    # Stage 1: Load configurations
+    workshops = load_yaml_config(WORKSHOPS_FILE).get('workshops', [])
+    layout_mapping = load_yaml_config(LAYOUTS_FILE)
+    
+    # Stage 2: Validate configuration before proceeding
+    validate_layouts(layout_mapping)
+    
+    # Stage 3: Download source documents
     source_docs = download_files_from_drive_folder(SOURCE_DOCS_FOLDER_ID)
     
     if not source_docs:
         logging.warning("No source documents found. Markdown generation will rely on the model's general knowledge.")
 
+    # Stage 4: Generate Markdown
     clean_source_directory()
-    generate_markdown_files(source_docs, workshops_to_run)
+    generate_markdown_files(source_docs, workshops)
     
-    if any(w.get('enabled', False) for w in workshops_to_run):
+    # Stage 5: Generate Slides
+    if any(w.get('enabled', False) for w in workshops):
         run_slides_generation()
     else:
         logging.info("No workshops were enabled in workshops.yaml. Skipping slide generation.")

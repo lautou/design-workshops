@@ -27,21 +27,12 @@ Your key responsibility is to correctly place content, especially the Architectu
 
 Even though you have the context of the full roadmap, your task right now is to **GENERATE THE MARKDOWN FOR ONLY ONE SPECIFIC WORKSHOP**. I will specify which one in the final part of the prompt.
 
-**5\. PRELIMINARY TASKS (Pre-computation and Validation)**
-
-Before generating any markdown, you must perform these validation steps.
-
-1. **Identify Slide Layouts:** Analyze the provided "Red Hat AI Platform | Presentation template" file to identify a list of all distinct slide layouts.  
-2. **Select Reusable Layouts:** From the list identified in the previous step, select a core set of layouts that are appropriate and sufficient for generating all workshop decks (e.g., title, section, default content, columns, etc.). Display the names of these "SELECTED" layouts.  
-3. **Validate Layout Mapping:** For every "SELECTED" layout, verify that a corresponding entry exists in the provided "Layout-to-Class Mapping" file.  
-4. **Halt on Mismatch:** If one or more of the "SELECTED" layouts are not found in the mapping file, **you MUST stop the entire process** and output an alert specifying which layouts are missing. Do not proceed to the main tasks.
-
-**6\. MAIN TASKS (Proceed only if preliminary tasks are successful)**
+**5\. MAIN TASKS**
 
 1. **Identify Relevant ADs:** Scan **all provided .adoc files**. From all the ADs found, identify and display a list of only those relevant to the specific workshop's topic. For each, indicate if it's reused/adapted or needs to be newly created, and assign it the correct ID prefix.  
 2. **Generate Slide Deck:** Create the complete Marpit Markdown file for the workshop, ensuring every constraint defined below is met.
 
-**7\. Mandatory Output Format & Constraints**
+**6\. Mandatory Output Format & Constraints**
 
 * **Single Markdown File:** The entire output for one workshop deck must be a single Markdown code block.  
 * **Marpit Framework:** Begin every file with \--- \\n marp: true \\n ... \\n \---.  
@@ -58,7 +49,7 @@ Before generating any markdown, you must perform these validation steps.
 * **Diagrams/Images:** Do not generate images. Use descriptive text placeholders in square brackets, e.g., \[High-level diagram of OCP Control Plane and Worker Nodes\].  
 * **Tables:** Do not use separator rows like \-------------.
 
-**8\. Architecture Decision (AD) Handling (STRICT INSTRUCTIONS)**
+**7\. Architecture Decision (AD) Handling (STRICT INSTRUCTIONS)**
 
 For every Architecture Decision found in the source documents that belongs in the current workshop, you MUST structure it as follows:
 

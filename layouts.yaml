@@ -1,12 +1,23 @@
-# This file maps the _class names from your Markdown files
-# to the official "Display name" of the layouts in your Google Slides template.
+# These values will be applied across the entire presentation.
+globals:
+  header: ""  # This will be dynamically populated by the workshop title.
+  footer: "Red Hat Consulting"
+  version:
+    find: "V0000000"
+    replace: "V1.0"
+  classification:
+    find: "CONFIDENTIAL designator"
+    replace: "CONFIDENTIAL"
 
-# _class name : "Layout Display Name"
-title: 'Theme 1 title'
-lead: 'Interior title and body'
-section: 'Theme 1 divider'
-agenda: 'Interior title and body'
-default: 'Interior title and body'
-columns: 'Interior title and two column body'
-image_right: 'Interior image left'
-closing: 'Theme 1 closing'
+# --- Layout Class to Google Slides Layout Name Mapping ---
+# This maps our abstract class names to the real "Display name" of the layouts
+# in your Google Slides template.
+layout_mapping:
+  title: 'Theme 1 title'
+  agenda: 'Interior title and body'
+  default: 'Interior title and body'
+  columns: 'Interior title and two column body'
+  image_right: 'Interior image left'
+  image_fullscreen: 'Interior title' # A simple layout with just a title
+  table_fullscreen: 'Interior title'  # We only need the title placeholder
+  closing: 'Theme 1 closing'

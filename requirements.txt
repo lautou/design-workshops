@@ -3,5 +3,4 @@ google-auth-httplib2
 google-auth-oauthlib
 python-dotenv
 PyYAML
-google-cloud-aiplatform
 PyMuPDF

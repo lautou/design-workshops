@@ -2,11 +2,7 @@
 
 # This script is the main entry point for the presentation generation pipeline.
 # It activates the Python virtual environment and then executes the
-# main pipeline orchestrator script (run_pipeline.py) or the new
-# document downloader.
-#
-# Any arguments passed to this script (e.g., --force, --json-only)
-# will be forwarded directly to the Python script.
+# prompt generation script or the document downloader.
 
 # Navigate to the script's directory to ensure correct file paths
 cd "$(dirname "$0")"
@@ -18,11 +14,11 @@ COMMAND=$1
 shift # Remove the command from the arguments list
 
 case "$COMMAND" in
-  "generate")
-    echo "--- Starting Presentation Generation Pipeline ---"
-    # Run the main Python orchestrator, passing all remaining arguments
-    python3 run_pipeline.py "$@"
-    echo "--- Pipeline Finished ---"
+  "generate-prompt")
+    echo "--- Starting Prompt Generation ---"
+    # Run the Python orchestrator to generate the prompt file. It no longer takes arguments.
+    python3 run_pipeline.py
+    echo "--- Prompt Generation Finished ---"
     ;;
 
   "download-docs")
@@ -33,9 +29,8 @@ case "$COMMAND" in
     ;;
 
   *)
-    echo "Usage: $0 [generate|download-docs]"
-    echo "  generate       : Runs the main slide generation pipeline."
-    echo "                   (accepts flags like --generate-prompt, --force)"
+    echo "Usage: $0 [generate-prompt|download-docs]"
+    echo "  generate-prompt: Runs the script to build the prompt file (generated-prompt.md)."
     echo "  download-docs  : Runs the script to download source PDFs from the config."
     echo "                   (accepts flags like --no-cache)"
     exit 1

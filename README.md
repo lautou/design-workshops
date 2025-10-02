@@ -2,7 +2,7 @@
 
 This project provides a powerful, semi-automated pipeline to generate branded Google Slides presentations from a collection of source documents. It uses Gemini to act as a technical content curator, generating a structured JSON representation of the slide deck, which is then used by local scripts to build the final presentation.
 
-The pipeline is designed to be robust and developer-friendly, with a "prompt-builder" mode to accommodate environments where direct API access is not available.
+The pipeline is designed to be robust and developer-friendly, focusing on a manual "prompt-builder" workflow that does not require direct API access.
 
 ## **Features**
 
@@ -30,10 +30,10 @@ This step uses the doc\_downloader utility to read the URLs from doc\_downloader
 
 ### **Step 2: Generate the Prompt File**
 
-Use the \--generate-prompt flag. The script will read your workshops.yaml file, construct the full, context-rich prompt for the first enabled workshop, and save it to generated-prompt.md.
+This command reads your workshops.yaml file, constructs the full, context-rich prompt for the first enabled workshop, and saves it to generated-prompt.md.
 
 \# Generate the prompt for the first enabled workshop  
-./run.sh generate \--generate-prompt
+./run.sh generate-prompt
 
 ### **Step 3: Generate JSON in the Gemini UI**
 

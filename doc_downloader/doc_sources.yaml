@@ -1,0 +1,14 @@
+# --- Document Download Configuration ---
+#
+# This file specifies the list of Red Hat documentation URLs to be
+# downloaded by the run.sh download-docs command.
+# The script will process all URLs listed here.
+
+urls:
+  - https://docs.redhat.com/en/documentation/openshift_container_platform/4.19
+  - https://docs.redhat.com/en/documentation/red_hat_openshift_data_foundation/4.19
+  - https://docs.redhat.com/en/documentation/red_hat_openshift_logging/6.3
+  - https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/1.20
+  - https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.18
+  - https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/2.23
+  # Add other product documentation URLs here

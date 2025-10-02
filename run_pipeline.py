@@ -45,6 +45,7 @@ try:
     JSON_SOURCE_DIR = "json_source"
     LOCAL_DOCS_DIR = "source_documents"
     CACHE_INFO_FILE = ".cache_info.json"
+    GENERATED_PROMPT_FILE = "generated-prompt.md"
 except KeyError as e:
     logging.critical(f"FATAL: Missing required configuration in .env file: {e}")
     sys.exit(1)
@@ -254,7 +255,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate workshop slides from source documents.")
     parser.add_argument("--force", action="store_true", help="Force regeneration of JSON files, ignoring cache.")
     parser.add_argument("--json-only", action="store_true", help="Stop after generating JSON files.")
-    parser.add_argument("--show-prompt", action="store_true", help="Build and print the prompt, then exit.")
+    parser.add_argument("--generate-prompt", action="store_true", help="Build and save the prompt to a file, then exit.")
     args = parser.parse_args()
 
     logging.info("--- Starting Generation Pipeline ---")
@@ -264,9 +265,9 @@ if __name__ == "__main__":
     
     validate_layouts_in_template(layout_config)
     
-    # --- --show-prompt Logic ---
-    if args.show_prompt:
-        logging.info("✅ --show-prompt flag detected. Building the prompt for manual execution...")
+    # --- --generate-prompt Logic ---
+    if args.generate_prompt:
+        logging.info("✅ --generate-prompt flag detected. Building the prompt for manual execution...")
         
         enabled_workshops = [w for w in workshops if w.get('enabled', False)]
         if not enabled_workshops:
@@ -287,17 +288,24 @@ if __name__ == "__main__":
         
         final_prompt = base_prompt + task_prompt
         
-        print("\n" + "="*80)
-        print("COPY AND PASTE THE FOLLOWING PROMPT INTO THE GEMINI UI")
-        print(f"WORKSHOP: {title}")
-        print("\nREQUIRED FILES TO UPLOAD MANUALLY:")
+        prompt_header = (
+            f"# -- PROMPT FOR: {title} --\n\n"
+            f"## REQUIRED FILES TO UPLOAD MANUALLY TO THE GEMINI UI:\n"
+        )
         for pattern in workshop.get('source_files', []):
-            print(f"  - {pattern}")
-        print("="*80 + "\n")
-        print(final_prompt)
-        print("\n" + "="*80)
-        
-        logging.info("Prompt printed. Exiting.")
+            prompt_header += f"- `{pattern}`\n"
+        prompt_header += "\n---\n\n"
+
+        full_prompt_content = prompt_header + final_prompt
+
+        try:
+            with open(GENERATED_PROMPT_FILE, 'w', encoding='utf-8') as f:
+                f.write(full_prompt_content)
+            logging.info(f"✅ Prompt successfully saved to '{GENERATED_PROMPT_FILE}'")
+        except IOError as e:
+            logging.error(f"❌ Could not write prompt to file: {e}")
+
+        logging.info("Exiting.")
         sys.exit(0)
     
     # --- Main Pipeline Logic ---
@@ -326,4 +334,3 @@ if __name__ == "__main__":
         logging.info("No workshops enabled. Skipping slide generation step.")
     
     logging.info("--- Pipeline Finished ---")
-

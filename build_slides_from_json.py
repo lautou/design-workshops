@@ -85,7 +85,7 @@ def copy_template_presentation(drive_service, new_title):
         copied_file = drive_service.files().copy(
             fileId=TEMPLATE_ID,
             body=copy_body,
-            supportsAllDrives=True  # <-- FIX for Shared Drives
+            supportsAllDrives=True
         ).execute()
         presentation_id = copied_file.get('id')
         logging.info(f"New presentation created with ID: {presentation_id}")
@@ -146,7 +146,6 @@ def clean_text_content(text):
 def get_rich_text_requests(object_id, body_lines):
     """Generates API requests for populating a shape with richly formatted text."""
     requests = []
-    # Clean text content before processing
     cleaned_lines = [clean_text_content(line) for line in body_lines]
     full_text = "\n".join(cleaned_lines)
     
@@ -169,7 +168,6 @@ def get_rich_text_requests(object_id, body_lines):
         bold_matches = re.finditer(r'\*\*(.*?)\*\*', line)
         for match in bold_matches:
             start, end = match.span(1)
-            # Adjust indices for removed asterisks
             adjusted_start = current_offset + start - (match.start(0) // 2 * 2)
             adjusted_end = adjusted_start + (end - start)
             requests.append({"updateTextStyle": {
@@ -183,7 +181,7 @@ def get_rich_text_requests(object_id, body_lines):
     return requests
 
 def upload_image_to_drive(drive_service, image_path, slide_index):
-    """Uploads a single image to Google Drive and returns its public URL."""
+    """Uploads a single image to Google Drive and returns its webContentLink."""
     try:
         file_metadata = {'name': os.path.basename(image_path), 'parents': [OUTPUT_FOLDER_ID]}
         media = MediaFileUpload(image_path)
@@ -192,16 +190,12 @@ def upload_image_to_drive(drive_service, image_path, slide_index):
             body=file_metadata,
             media_body=media,
             fields='id, webContentLink',
-            supportsAllDrives=True  # <-- FIX for Shared Drives
-        ).execute()
-        
-        drive_service.permissions().create(
-            fileId=image_file.get('id'),
-            body={'type': 'anyone', 'role': 'reader'},
             supportsAllDrives=True
         ).execute()
         
+        # REMOVED public permission creation
         return image_file.get('webContentLink')
+
     except HttpError as e:
         logging.error(f"  - Failed to upload image for slide {slide_index+1}. Error: {e}")
         return None
@@ -247,7 +241,6 @@ def create_fullscreen_image(drive_service, slide_id, slide_index, image_ref, pag
         }
     }
 
-
 def create_image_in_placeholder(drive_service, slide_id, slide_index, image_ref, placeholder):
     """Generates a request to create an image within the bounds of a specific placeholder."""
     json_base_name = image_ref.get("json_file_base")
@@ -279,7 +272,6 @@ def create_image_in_placeholder(drive_service, slide_id, slide_index, image_ref,
         }
     }
 
-# ... (rest of the file remains the same) ...
 def create_fullscreen_table(slide_id, table_data, page_elements, page_size):
     """Generates requests to create and populate a centered table."""
     title_placeholder = next((el for el in page_elements if el.get('shape', {}).get('placeholder', {}).get('type') == 'TITLE'), None)
@@ -315,11 +307,10 @@ def create_fullscreen_table(slide_id, table_data, page_elements, page_size):
         "rows": rows, "columns": cols
     }})
 
-    # Populate header
     for c, header in enumerate(table_data['headers']):
         requests.append({"insertText": {"objectId": table_id, "cellLocation": {"rowIndex": 0, "columnIndex": c}, "text": clean_text_content(header)}})
         requests.append({"updateTextStyle": {"objectId": table_id, "cellLocation": {"rowIndex": 0, "columnIndex": c}, "style": {"bold": True}, "fields": "bold"}})
-    # Populate rows
+
     for r, row_data in enumerate(table_data['rows']):
         for c, cell_text in enumerate(row_data):
             requests.append({"insertText": {"objectId": table_id, "cellLocation": {"rowIndex": r + 1, "columnIndex": c}, "text": clean_text_content(str(cell_text))}})

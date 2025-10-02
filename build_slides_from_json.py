@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
+import io
 
 # --- SCRIPT SETUP: LOGGING AND CONFIGURATION ---
 load_dotenv()
@@ -44,10 +45,9 @@ except KeyError as e:
     logging.critical(f"FATAL: Missing required configuration in .env file: {e}")
     sys.exit(1)
 
-# ---FIX--- Correctly define scopes as a list of strings
 SCOPES = [
     "https://www.googleapis.com/auth/presentations",
-    "https://www.googleapis.com/auth/drive" # Add drive scope for image uploads
+    "https://www.googleapis.com/auth/drive"
 ]
 
 # --- CORE API & HELPER FUNCTIONS ---
@@ -83,7 +83,9 @@ def copy_template_presentation(drive_service, new_title):
         logging.info(f"Copying template to create new presentation '{new_title}'...")
         copy_body = {'name': new_title, 'parents': [OUTPUT_FOLDER_ID]}
         copied_file = drive_service.files().copy(
-            fileId=TEMPLATE_ID, body=copy_body, supportsAllDrives=True
+            fileId=TEMPLATE_ID,
+            body=copy_body,
+            supportsAllDrives=True  # <-- FIX for Shared Drives
         ).execute()
         presentation_id = copied_file.get('id')
         logging.info(f"New presentation created with ID: {presentation_id}")
@@ -138,7 +140,7 @@ def clean_text_content(text):
     """Removes citation tags from a string value *within* the JSON."""
     if not isinstance(text, str):
         return text
-    text = re.sub(r'\[cite_start\]|\[cite:[\d,\s]+\]', '', text)
+    text = re.sub(r'\[cite(_start|:[\d,\s]+)\]', '', text)
     return text.strip()
 
 def get_rich_text_requests(object_id, body_lines):
@@ -180,7 +182,31 @@ def get_rich_text_requests(object_id, body_lines):
     
     return requests
 
-# --- NEW: Advanced Rendering Logic ---
+def upload_image_to_drive(drive_service, image_path, slide_index):
+    """Uploads a single image to Google Drive and returns its public URL."""
+    try:
+        file_metadata = {'name': os.path.basename(image_path), 'parents': [OUTPUT_FOLDER_ID]}
+        media = MediaFileUpload(image_path)
+        
+        image_file = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id, webContentLink',
+            supportsAllDrives=True  # <-- FIX for Shared Drives
+        ).execute()
+        
+        drive_service.permissions().create(
+            fileId=image_file.get('id'),
+            body={'type': 'anyone', 'role': 'reader'},
+            supportsAllDrives=True
+        ).execute()
+        
+        return image_file.get('webContentLink')
+    except HttpError as e:
+        logging.error(f"  - Failed to upload image for slide {slide_index+1}. Error: {e}")
+        return None
+
+# --- Image and Table Rendering Logic ---
 def create_fullscreen_image(drive_service, slide_id, slide_index, image_ref, page_size):
     """Generates request to create a centered, fullscreen image."""
     json_base_name = image_ref.get("json_file_base")
@@ -194,61 +220,76 @@ def create_fullscreen_image(drive_service, slide_id, slide_index, image_ref, pag
     image_path = found_images[0]
     logging.info(f"  - Uploading and placing image '{os.path.basename(image_path)}'...")
     
-    try:
-        # Upload image to a temporary folder in Drive to get a URL
-        file_metadata = {'name': os.path.basename(image_path), 'parents': [OUTPUT_FOLDER_ID]}
-        media = MediaFileUpload(image_path)
-        image_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webContentLink').execute()
-        
-        # Make the image publicly readable so the Slides API can access it
-        drive_service.permissions().create(fileId=image_file.get('id'), body={'type': 'anyone', 'role': 'reader'}).execute()
-        
-        image_url = image_file.get('webContentLink')
-
-        # This part remains a heuristic. For a precise solution, a library like Pillow
-        # would be needed to read the image dimensions before uploading.
-        # For now, we assume a 4:3 aspect ratio for calculation.
-        img_width, img_height = 1200, 900
-        
-        page_width = page_size['width']['magnitude']
-        page_height = page_size['height']['magnitude']
-        margin = 360000 # EMU, approx 0.5 inches
-
-        # Calculate final dimensions while maintaining aspect ratio
-        scale = min((page_width - 2 * margin) / img_width, (page_height - 2 * margin) / img_height)
-        final_width = img_width * scale
-        final_height = img_height * scale
-
-        pos_x = (page_width - final_width) / 2
-        pos_y = (page_height - final_height) / 2
-
-        return {
-            "createImage": {
-                "url": image_url,
-                "elementProperties": {
-                    "pageObjectId": slide_id,
-                    "size": {"width": {"magnitude": final_width, "unit": "EMU"}, "height": {"magnitude": final_height, "unit": "EMU"}},
-                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": pos_x, "translateY": pos_y, "unit": "EMU"}
-                }
-            }
-        }
-    except Exception as e:
-        logging.error(f"  - Failed to upload or place image for slide {slide_index+1}. Error: {e}")
+    image_url = upload_image_to_drive(drive_service, image_path, slide_index)
+    if not image_url:
         return None
 
+    img_width, img_height = 1200, 900
+    page_width = page_size['width']['magnitude']
+    page_height = page_size['height']['magnitude']
+    margin = 360000
 
+    scale = min((page_width - 2 * margin) / img_width, (page_height - 2 * margin) / img_height)
+    final_width = img_width * scale
+    final_height = img_height * scale
+
+    pos_x = (page_width - final_width) / 2
+    pos_y = (page_height - final_height) / 2
+
+    return {
+        "createImage": {
+            "url": image_url,
+            "elementProperties": {
+                "pageObjectId": slide_id,
+                "size": {"width": {"magnitude": final_width, "unit": "EMU"}, "height": {"magnitude": final_height, "unit": "EMU"}},
+                "transform": {"scaleX": 1, "scaleY": 1, "translateX": pos_x, "translateY": pos_y, "unit": "EMU"}
+            }
+        }
+    }
+
+
+def create_image_in_placeholder(drive_service, slide_id, slide_index, image_ref, placeholder):
+    """Generates a request to create an image within the bounds of a specific placeholder."""
+    json_base_name = image_ref.get("json_file_base")
+    image_pattern = f"{json_base_name}-slide_{slide_index+1:02d}.*"
+    
+    found_images = glob.glob(os.path.join(IMAGE_DIRECTORY, image_pattern))
+    if not found_images:
+        logging.warning(f"  - Slide {slide_index+1}: Image file not found for pattern '{image_pattern}'. Skipping image.")
+        return None
+
+    image_path = found_images[0]
+    logging.info(f"  - Uploading and placing image '{os.path.basename(image_path)}' into placeholder...")
+
+    image_url = upload_image_to_drive(drive_service, image_path, slide_index)
+    if not image_url:
+        return None
+
+    placeholder_size = placeholder.get('size', {})
+    placeholder_transform = placeholder.get('transform', {})
+
+    return {
+        "createImage": {
+            "url": image_url,
+            "elementProperties": {
+                "pageObjectId": slide_id,
+                "size": placeholder_size,
+                "transform": placeholder_transform
+            }
+        }
+    }
+
+# ... (rest of the file remains the same) ...
 def create_fullscreen_table(slide_id, table_data, page_elements, page_size):
     """Generates requests to create and populate a centered table."""
-    # Find the title placeholder to determine available vertical space
     title_placeholder = next((el for el in page_elements if el.get('shape', {}).get('placeholder', {}).get('type') == 'TITLE'), None)
     
-    top_margin = 360000 # Default top margin
+    top_margin = 360000 
     if title_placeholder:
         title_transform = title_placeholder.get('transform', {})
         title_size = title_placeholder.get('size', {})
-        # Position below the title
-        top_margin = title_transform.get('translateY', 0) + title_size.get('height', {}).get('magnitude', 0) + 180000 # plus padding
-    
+        top_margin = title_transform.get('translateY', 0) + title_size.get('height', {}).get('magnitude', 0) + 180000
+
     page_width = page_size['width']['magnitude']
     page_height = page_size['height']['magnitude']
     bottom_margin = 360000
@@ -256,7 +297,7 @@ def create_fullscreen_table(slide_id, table_data, page_elements, page_size):
     available_width = page_width - (2 * 360000)
     available_height = page_height - top_margin - bottom_margin
     
-    rows = len(table_data.get('rows', [])) + 1 # +1 for header
+    rows = len(table_data.get('rows', [])) + 1 
     cols = len(table_data.get('headers', []))
     if not (rows > 1 and cols > 0):
         return []
@@ -264,9 +305,6 @@ def create_fullscreen_table(slide_id, table_data, page_elements, page_size):
     table_id = str(uuid.uuid4())
     requests = []
     
-    # NOTE: This creates a table that fills the available space. Sizing and centering
-    # is complex. This is a simplified approach. A full implementation would
-    # calculate text length to set column widths and row heights.
     requests.append({"createTable": {
         "objectId": table_id,
         "elementProperties": {
@@ -305,9 +343,8 @@ def add_slide_to_presentation(slides_service, drive_service, presentation_id, sl
     
     requests.append({"createSlide": {"objectId": slide_id, "slideLayoutReference": {"layoutId": layout_id}}})
 
-    # Execute slide creation first to get element IDs
     try:
-        response = slides_service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": requests}).execute()
+        slides_service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": requests}).execute()
         logging.info(f"  - Created slide {slide_index+1}/{slide_data.get('total_slides')} (class: {layout_class})")
     except HttpError as err:
         logging.error(f"  - Failed to create slide {slide_index+1}. Error: {err}")
@@ -315,7 +352,6 @@ def add_slide_to_presentation(slides_service, drive_service, presentation_id, sl
 
     page_elements = slides_service.presentations().pages().get(presentationId=presentation_id, pageObjectId=slide_id).execute().get('pageElements', [])
     
-    # --- Get all placeholders and their properties ---
     placeholders = {}
     for el in page_elements:
         ph = el.get('shape', {}).get('placeholder')
@@ -325,38 +361,32 @@ def add_slide_to_presentation(slides_service, drive_service, presentation_id, sl
                 placeholders[ph_type] = []
             placeholders[ph_type].append({
                 'objectId': el.get('objectId'),
-                'transform': el.get('transform', {})
+                'transform': el.get('transform', {}),
+                'size': el.get('size', {})
             })
     
-    # Sort subtitle placeholders by vertical position
     if 'SUBTITLE' in placeholders:
         placeholders['SUBTITLE'].sort(key=lambda x: x['transform'].get('translateY', 0))
 
-    # --- Build Content Population Requests ---
     content_requests = []
     
-    # 1. Populate Title
     if 'title' in slide_data and 'TITLE' in placeholders:
         title_id = placeholders['TITLE'][0]['objectId']
         content_requests.append({"insertText": {"objectId": title_id, "text": clean_text_content(slide_data['title'])}})
 
-    # 2. Populate Globals (Header/Footer) and Subtitle
     if 'SUBTITLE' in placeholders:
         subtitle_placeholders = placeholders['SUBTITLE']
         if slide_data.get('subtitle'):
             subtitle_id = subtitle_placeholders[0]['objectId']
             content_requests.append({"insertText": {"objectId": subtitle_id, "text": clean_text_content(slide_data['subtitle'])}})
-        elif layout_class not in ['title', 'closing']: # Don't add globals to title/closing
+        elif layout_class not in ['title', 'closing']:
             if globals_config.get('header') and len(subtitle_placeholders) > 0:
-                header_id = subtitle_placeholders[0]['objectId'] # Topmost
+                header_id = subtitle_placeholders[0]['objectId']
                 content_requests.append({"insertText": {"objectId": header_id, "text": globals_config['header']}})
             if globals_config.get('footer') and len(subtitle_placeholders) > 1:
-                footer_id = subtitle_placeholders[-1]['objectId'] # Bottommost
+                footer_id = subtitle_placeholders[-1]['objectId']
                 content_requests.append({"insertText": {"objectId": footer_id, "text": globals_config['footer']}})
     
-    # 3. Handle different layout classes
-    body_id = placeholders.get('BODY', [{}])[0].get('objectId')
-
     if layout_class == "image_fullscreen":
         image_ref = slide_data.get("imageReference", {})
         image_ref["json_file_base"] = slide_data.get("json_file_base")
@@ -367,18 +397,26 @@ def add_slide_to_presentation(slides_service, drive_service, presentation_id, sl
         if 'table' in slide_data:
             content_requests.extend(create_fullscreen_table(slide_id, slide_data['table'], page_elements, page_size))
     
-    elif layout_class == 'image_right' and body_id:
-        if 'body' in slide_data:
+    elif layout_class == 'image_right':
+        body_id = placeholders.get('BODY', [{}])[0].get('objectId')
+        if 'body' in slide_data and body_id:
             content_requests.extend(get_rich_text_requests(body_id, slide_data['body']))
-        # TODO: Handle image placement in the correct image placeholder
-        logging.warning(f"  - image_right layout class does not yet place the image automatically.")
+        
+        image_placeholder = next((el for el in page_elements if el.get('shape', {}).get('placeholder', {}).get('type') == 'PICTURE'), None)
+        if 'imageReference' in slide_data and image_placeholder:
+            image_ref = slide_data.get("imageReference", {})
+            image_ref["json_file_base"] = slide_data.get("json_file_base")
+            img_req = create_image_in_placeholder(drive_service, slide_id, slide_index, image_ref, image_placeholder)
+            if img_req:
+                content_requests.append(img_req)
+        elif 'imageReference' in slide_data:
+            logging.warning(f"  - Slide {slide_index+1}: Found image reference but no 'PICTURE' placeholder on the slide layout. Cannot place image.")
 
-
-    else: # Default, columns, agenda etc.
+    else:
+        body_id = placeholders.get('BODY', [{}])[0].get('objectId')
         if 'body' in slide_data and body_id:
             content_requests.extend(get_rich_text_requests(body_id, slide_data['body']))
             
-    # Handle speaker notes
     if 'speakerNotes' in slide_data:
         notes_page = slides_service.presentations().pages().get(presentationId=presentation_id, pageObjectId=slide_id).execute()
         notes_id = notes_page.get('slideProperties', {}).get('notesPage', {}).get('notesProperties', {}).get('speakerNotesObjectId')
@@ -390,7 +428,6 @@ def add_slide_to_presentation(slides_service, drive_service, presentation_id, sl
             slides_service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": content_requests}).execute()
         except HttpError as err:
             logging.error(f"  - Failed to populate slide {slide_index+1}. Error: {err}")
-
 
 # --- MAIN EXECUTION LOGIC ---
 def main():
@@ -426,22 +463,18 @@ def main():
                 logging.warning(f"No slides found in {json_file}. Skipping.")
                 continue
 
-            # Set the dynamic global header
             globals_config['header'] = workshop_title
             
-            # 1. Create the new presentation
             presentation_id = copy_template_presentation(drive_service, f"Generated - {workshop_title}")
             if not presentation_id:
                 raise Exception("Failed to copy template presentation.")
 
-            # 2. Get theme info and apply global replacements
             master_id, layout_map, page_size = get_theme_and_layouts(slides_service, presentation_id)
             if not master_id:
                 raise Exception("Could not identify target theme in the template.")
             
             replace_master_slide_text(slides_service, presentation_id, master_id, globals_config)
 
-            # 3. Clean template slides
             pres = slides_service.presentations().get(presentationId=presentation_id).execute()
             slide_ids_to_delete = [s['objectId'] for s in pres.get('slides', [])]
             if slide_ids_to_delete:
@@ -449,7 +482,6 @@ def main():
                 slides_service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": delete_requests}).execute()
                 logging.info(f"Removed {len(slide_ids_to_delete)} template slides.")
             
-            # 4. Loop through slides in JSON and create them
             total_slides = len(slides)
             json_file_base = os.path.splitext(os.path.basename(json_file))[0]
             for i, slide_data in enumerate(slides):
@@ -469,3 +501,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

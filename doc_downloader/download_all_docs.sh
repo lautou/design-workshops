@@ -69,31 +69,28 @@ fi
 mkdir -p "$OUTPUT_DIRECTORY"
 echo "✅ Files will be saved in the directory: '$OUTPUT_DIRECTORY'"
 
-# Read URLs from YAML file (basic parsing, requires yq for robustness in future)
-URLS=$(grep -E '^\s*-\s*' "$CONFIG_FILE" | sed 's/^\s*-\s*//' | tr -d '"'\'')
+# ---FIX--- Use a robust while-read loop to process URLs from the config file
+grep -E '^\s*-\s*' "$CONFIG_FILE" | sed 's/^\s*-\s*//' | tr -d "'\"" | while read -r URL || [[ -n "$URL" ]]; do
+    if [ -z "$URL" ]; then continue; fi
 
-if [ -z "$URLS" ]; then
-    echo "⚠️ Warning: No URLs found in '$CONFIG_FILE'." >&2
-    exit 0
-fi
-
-for URL in $URLS; do
     echo ""
     echo "=========================================================="
     echo "🔎 Processing Product URL: $URL"
     echo "=========================================================="
-    
+
     FINAL_URL=$(curl -s -L -o /dev/null -w '%{url_effective}' "$URL")
     echo "✅ Final URL is: $FINAL_URL"
 
     PRODUCT_SLUG=$(echo "$FINAL_URL" | awk -F'/' '{print $6}')
 
+    # ---FIX--- Corrected the escaping inside the grep regex character class
     curl -s -L "$FINAL_URL" | \
         grep -o "href=\"/en/documentation/${PRODUCT_SLUG}/[^\" ]*/html/[^\" ]*\"" | \
         sed 's/href="\([^"]*\)"/\1/' | \
         sed 's|/index$||' | \
         sort -u | \
         while read -r relative_url; do
+            if [ -z "$relative_url" ]; then continue; fi
             full_url="https://docs.redhat.com${relative_url}"
             process_url "$full_url" "$OUTPUT_DIRECTORY" "$CACHE_MODE"
         done

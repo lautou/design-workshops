@@ -74,7 +74,7 @@ You MUST use the layoutClass field to communicate the slide's primary intent. Us
 
 **8\. Content & Style Rules**
 
-* **Strict Modularity (NEW CRITICAL RULE):** The generated workshop MUST be completely self-contained and modular. You MUST NOT make any reference to past or future workshops. For example, do not add phrases like "In our next session..." or "As we discussed previously..." to any slide, especially the closing slide. The workshop should end cleanly without mentioning other topics.  
+* **Strict Modularity:** The generated workshop MUST be completely self-contained and modular. You MUST NOT make any reference to past or future workshops. For example, do not add phrases like "In our next session..." or "As we discussed previously..." to any slide, especially the closing slide. The workshop should end cleanly without mentioning other topics.  
 * **Workshop Scope Adherence:** The content of the slide deck, especially the agenda slide, MUST be strictly confined to the topic of the current workshop. Do NOT include agenda items or content that clearly belong to other workshops listed in the roadmap. For example, if the current task is "Basic Concepts," do not include "Storage" or "CI/CD" in the agenda.  
 * **Layout Intent:** Choose the layoutClass that best represents the slide's purpose. If a diagram is complex and the main point of the slide, you **MUST** use image\_fullscreen. If a table is the main content, you **MUST** use table\_fullscreen.  
 * **Body vs. Table Exclusivity:** A single slide object MUST contain either a body field or a table field, but **NEVER BOTH**.  
@@ -90,6 +90,7 @@ You MUST use the layoutClass field to communicate the slide's primary intent. Us
 **10\. Architecture Decision (AD) Handling (STRICT INSTRUCTIONS)**
 
 * **Relevancy:** You must be highly selective. An AD is only relevant to the current workshop if its topic is explained in the workshop's explanatory slides. **Do not include ADs that are off-topic.**  
+* **Conceptual Focus for "Basic Concepts" (NEW CRITICAL RULE):** If the current task is the "OCP Basic concepts and architecture overview" workshop, you MUST only include ADs that relate to the most fundamental, high-level choices. Specifically, include decisions about **cluster count, cloud model, infrastructure platform, installation type, and connectivity.** You MUST EXCLUDE decisions related to day-2 operations, tenancy, identity management, or resource quotas, as those belong in other workshops.  
 * **Creation:** You are not limited to the ADs in the .adoc files. If the product documentation (PDFs) introduces a key configurable feature that requires a design choice, you **MUST** create a new AD for it.  
 * **Identification:** Assign a unique ID to each AD. Use the ID Prefix specified for the workshop (e.g., "OCP-BASE" from workshops.yaml) and number them sequentially starting from 0\.  
 * **Visible JSON Content:** The content for the visible parts of the slide MUST be extracted verbatim and placed in these fields:  

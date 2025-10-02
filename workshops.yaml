@@ -11,48 +11,84 @@ workshops:
     id_prefix: "OCP-BASE"
     enabled: true
     source_files:
-      - "decisions-OCP-BASE.adoc"
-      - "openshift_container_platform_4.19_-_Full_Documentation_Part_1.pdf"
+      - "*.adoc"
+      - "Openshift_Container_Platform-4.19-Overview-en-US.pdf"
+      - "Openshift_Container_Platform_4.19_-_architecture.pdf"
 
   - title: "OCP on baremetal infrastructure platform and installation specificities"
     id_prefix: "OCP-BM"
     enabled: false
-    source_files: [] # Add relevant files here, e.g., "openshift_container_platform_4.19*Part_1.pdf"
+    source_files:
+      - "*.adoc"
+      - "Openshift_Container_Platform_4.19_-_installing_on_bare_metal.pdf"
+      - "Openshift_Container_Platform_4.19_-_installing_an_on-premise_cluster_with_the_agent-based_installer.pdf"
+      - "Openshift_Container_Platform_4.19_-_installing_on-premise_with_assisted_installer.pdf"
+
+  - title: "OCP on OpenStack infrastructure platform and installation specificities"
+    id_prefix: "OCP-OSP"
+    enabled: false
+    source_files:
+      - "*.adoc"
+      - "Openshift_Container_Platform_4.19_-_installing_on_openstack.pdf"
 
   - title: "OCP Networking"
     id_prefix: "OCP-NET"
     enabled: false
-    source_files: [] # e.g., "*networking*.pdf"
+    source_files:
+      - "*.adoc"
+      - "Openshift_Container_Platform_4.19_-_networking_overview.pdf"
+      - "Openshift_Container_Platform_4.19_-_advanced_networking.pdf"
+      - "Openshift_Container_Platform_4.19_-_configuring_network_settings.pdf"
+      - "Openshift_Container_Platform_4.19_-_network_security.pdf"
+      - "Openshift_Container_Platform_4.19_-_ovn-kubernetes_network_plugin.pdf"
 
   - title: "OCP Storage"
     id_prefix: "OCP-STOR"
     enabled: false
     source_files:
-      - "red_hat_openshift_data_foundation_4.19_-_Full_Documentation.pdf"
+      - "*.adoc"
+      - "Openshift_Container_Platform_4.19_-_storage.pdf"
+      - "Red_Hat_Openshift_Data_Foundation_*.pdf"
 
   - title: "OCP Security"
     id_prefix: "OCP-SEC"
     enabled: false
-    source_files: [] # Add relevant files here
+    source_files:
+      - "*.adoc"
+      - "Openshift_Container_Platform_4.19_-_security_and_compliance.pdf"
+      - "Openshift_Container_Platform_4.19_-_authentication_and_authorization.pdf"
 
   - title: "OCP Platform Administration and Operations"
     id_prefix: "OCP-MGT"
     enabled: false
-    source_files: [] # Add relevant files here
+    source_files:
+      - "*.adoc"
+      - "Openshift_Container_Platform_4.19_-_machine_management.pdf"
+      - "Openshift_Container_Platform_4.19_-_updating_clusters.pdf"
+      - "Openshift_Container_Platform_4.19_-_backup_and_restore.pdf"
+      - "Openshift_Container_Platform_4.19_-_etcd.pdf"
 
   - title: "OCP Observability"
     id_prefix: "OCP-MON"
     enabled: false
     source_files:
-      - "decisions-LOGGING.adoc"
-      - "red_hat_openshift_logging_6.3_-_Full_Documentation.pdf"
+      - "*.adoc"
+      - "Red_Hat_Openshift_Logging_*.pdf"
+      - "Openshift_Container_Platform_4.19_-_observability_overview.pdf"
+      - "Openshift_Container_Platform_4.19_-_monitoring.pdf"
+      - "Openshift_Container_Platform_4.19_-_logging.pdf"
+      - "Openshift_Container_Platform_4.19_-_distributed_tracing.pdf"
+      - "Openshift_Container_Platform_4.19_-_power_monitoring.pdf"
+      - "Openshift_Container_Platform_4.19_-_network_observability.pdf"
+      - "Openshift_Container_Platform_4.19_-_red_hat_build_of_opentelemetry.pdf"
 
   - title: "CI/CD with OpenShift Pipelines and GitOps"
     id_prefix: "OCP-CICD"
     enabled: false
     source_files:
-      - "decisions-PIPELINES.adoc"
-      - "decisions-GITOPS.adoc"
-      - "red_hat_openshift_pipelines_1.19_-_Full_Documentation.pdf"
-      - "red_hat_openshift_gitops_1.17_-_Full_Documentation.pdf"
+      - "*.adoc"
+      - "Openshift_Container_Platform_4.19_-_pipelines.pdf"
+      - "Openshift_Container_Platform_4.19_-_gitops.pdf"
+      - "Red_Hat_Openshift_Pipelines_*.pdf"
+      - "Red_Hat_Openshift_Gitops_*.pdf"
 

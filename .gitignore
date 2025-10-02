@@ -4,3 +4,4 @@ extracted_images/*
 json_source/*
 service-account.json
 source_documents/*
+generated-prompt.md

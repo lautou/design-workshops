@@ -8,7 +8,8 @@ import re
 import uuid
 from dotenv import load_dotenv
 from google.oauth2 import service_account
-from googleapiclient.discovery import build, errors
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 # --- SCRIPT SETUP: LOGGING AND CONFIGURATION ---
@@ -87,7 +88,7 @@ def copy_template_presentation(drive_service, new_title):
         presentation_id = copied_file.get('id')
         logging.info(f"New presentation created with ID: {presentation_id}")
         return presentation_id
-    except errors.HttpError as err:
+    except HttpError as err:
         logging.error(f"Failed to copy template presentation: {err}")
     return None
 
@@ -110,7 +111,7 @@ def get_theme_and_layouts(slides_service, presentation_id):
             if layout.get('layoutProperties', {}).get('masterObjectId') == target_master_id
         }
         return target_master_id, final_layouts, presentation.get('pageSize')
-    except errors.HttpError as err:
+    except HttpError as err:
         logging.error(f"Could not fetch and process presentation theme info: {err}")
         return None, None, None
 
@@ -130,7 +131,7 @@ def replace_master_slide_text(slides_service, presentation_id, master_id, replac
         try:
             slides_service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": requests}).execute()
             logging.info("Performed global text replacements on the master slide.")
-        except errors.HttpError as err:
+        except HttpError as err:
             logging.warning(f"Could not perform master slide text replacements: {err}")
 
 def clean_text_content(text):
@@ -308,7 +309,7 @@ def add_slide_to_presentation(slides_service, drive_service, presentation_id, sl
     try:
         response = slides_service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": requests}).execute()
         logging.info(f"  - Created slide {slide_index+1}/{slide_data.get('total_slides')} (class: {layout_class})")
-    except errors.HttpError as err:
+    except HttpError as err:
         logging.error(f"  - Failed to create slide {slide_index+1}. Error: {err}")
         return
 
@@ -387,7 +388,7 @@ def add_slide_to_presentation(slides_service, drive_service, presentation_id, sl
     if content_requests:
         try:
             slides_service.presentations().batchUpdate(presentationId=presentation_id, body={"requests": content_requests}).execute()
-        except errors.HttpError as err:
+        except HttpError as err:
             logging.error(f"  - Failed to populate slide {slide_index+1}. Error: {err}")
 
 
@@ -468,4 +469,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

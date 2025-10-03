@@ -17,7 +17,14 @@ layout_mapping:
   agenda: 'Interior title and body'
   default: 'Interior title and body'
   columns: 'Interior title and two column body'
-  image_right: 'Interior image left'
-  image_fullscreen: 'Interior title' # A simple layout with just a title
-  table_fullscreen: 'Interior title'  # We only need the title placeholder
+  image_right: 'Interior image left' # This is our target layout
+  image_fullscreen: 'Interior title' 
+  table_fullscreen: 'Interior title'
   closing: 'Theme 1 closing'
+
+# --- NEW: Placeholder Override Mapping ---
+# This section allows us to override which placeholder is used for certain content
+# on a per-layout-class basis. This is useful for unconventional layouts.
+placeholder_mapping:
+  image_right:
+    body_placeholder: 'SUBTITLE' # For the 'image_right' class, use a SUBTITLE placeholder for the body text.

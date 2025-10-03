@@ -16,7 +16,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
-# NEW: AWS SDK for Python
+# AWS SDK for Python
 import boto3
 from botocore.exceptions import NoCredentialsError
 
@@ -32,13 +32,11 @@ logging.basicConfig(level=log_level, format="%(asctime)s [%(levelname)s] - %(mes
 try:
     CREDENTIALS_FILE = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
     TEMPLATE_ID = os.environ['TEMPLATE_PRESENTATION_ID']
-    OUTPUT_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID'] # Still needed for the presentation
+    OUTPUT_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID']
     TARGET_THEME_NAME = os.environ['TARGET_THEME_NAME']
     SOURCE_DIRECTORY = "json_source"
     IMAGE_DIRECTORY = "extracted_images"
     LAYOUTS_FILE = "layouts.yaml"
-    
-    # NEW: AWS S3 Configuration
     AWS_ACCESS_KEY_ID = os.environ['AWS_ACCESS_KEY_ID']
     AWS_SECRET_ACCESS_KEY = os.environ['AWS_SECRET_ACCESS_KEY']
     S3_BUCKET_NAME = os.environ['S3_BUCKET_NAME']
@@ -158,7 +156,6 @@ def get_rich_text_requests(object_id, body_lines):
         current_offset = line_end + 1
     return requests
 
-# --- AWS S3 Image Upload ---
 def upload_image_to_s3(s3_client, image_path, slide_index):
     """Uploads an image to S3 and returns its public URL."""
     try:
@@ -169,8 +166,9 @@ def upload_image_to_s3(s3_client, image_path, slide_index):
         logging.error(f"  - Failed to upload image for slide {slide_index+1} to S3. Error: {e}")
         return None
 
-# --- Image and Table Rendering Logic (using S3) ---
-def create_fullscreen_image(s3_client, slide_id, slide_index, image_ref, page_size):
+# --- Image and Table Rendering Logic (Updated) ---
+def create_image_on_slide(s3_client, slide_id, slide_index, image_ref, page_size, position='fullscreen'):
+    """Finds, uploads, and generates the request to place an image on a slide."""
     json_base_name = image_ref.get("json_file_base")
     image_pattern = f"{json_base_name}-slide_{slide_index+1:02d}.*"
     found_images = glob.glob(os.path.join(IMAGE_DIRECTORY, image_pattern))
@@ -179,34 +177,30 @@ def create_fullscreen_image(s3_client, slide_id, slide_index, image_ref, page_si
         return None
 
     image_path = found_images[0]
-    logging.info(f"  - Uploading '{os.path.basename(image_path)}' to S3...")
+    logging.info(f"  - Uploading '{os.path.basename(image_path)}' to S3 for {position} placement...")
     
     image_url = upload_image_to_s3(s3_client, image_path, slide_index)
     if not image_url: return None
 
     page_width, page_height = page_size['width']['magnitude'], page_size['height']['magnitude']
-    margin, img_width, img_height = 360000, 1200, 900
-    scale = min((page_width - 2 * margin) / img_width, (page_height - 2 * margin) / img_height)
-    final_width, final_height = img_width * scale, img_height * scale
-    pos_x, pos_y = (page_width - final_width) / 2, (page_height - final_height) / 2
+    margin = 360000 
+    img_width, img_height = 1200, 900 # Assume aspect ratio
+
+    if position == 'fullscreen':
+        scale = min((page_width - 2 * margin) / img_width, (page_height - 2 * margin) / img_height)
+        final_width, final_height = img_width * scale, img_height * scale
+        pos_x, pos_y = (page_width - final_width) / 2, (page_height - final_height) / 2
+    
+    elif position == 'left_half':
+        # Calculate dimensions for the left half of the slide
+        available_width = (page_width / 2) - (1.5 * margin)
+        available_height = page_height - (2 * margin)
+        scale = min(available_width / img_width, available_height / img_height)
+        final_width, final_height = img_width * scale, img_height * scale
+        pos_x, pos_y = margin, (page_height - final_height) / 2
 
     return {"createImage": {"url": image_url, "elementProperties": {"pageObjectId": slide_id, "size": {"width": {"magnitude": final_width, "unit": "EMU"}, "height": {"magnitude": final_height, "unit": "EMU"}}, "transform": {"scaleX": 1, "scaleY": 1, "translateX": pos_x, "translateY": pos_y, "unit": "EMU"}}}}
 
-def create_image_in_placeholder(s3_client, slide_id, slide_index, image_ref, placeholder):
-    json_base_name = image_ref.get("json_file_base")
-    image_pattern = f"{json_base_name}-slide_{slide_index+1:02d}.*"
-    found_images = glob.glob(os.path.join(IMAGE_DIRECTORY, image_pattern))
-    if not found_images:
-        logging.warning(f"  - Slide {slide_index+1}: Image file not found: '{image_pattern}'.")
-        return None
-
-    image_path = found_images[0]
-    logging.info(f"  - Uploading '{os.path.basename(image_path)}' to S3 for placeholder...")
-
-    image_url = upload_image_to_s3(s3_client, image_path, slide_index)
-    if not image_url: return None
-
-    return {"replaceAllShapesWithImage": {"imageUrl": image_url, "replaceMethod": "CENTER_INSIDE", "pageObjectIds": [slide_id], "shapeObjectIds": [placeholder.get('objectId')]}}
 
 def create_fullscreen_table(slide_id, table_data, page_elements, page_size):
     title_placeholder = next((el for el in page_elements if el.get('shape', {}).get('placeholder', {}).get('type') == 'TITLE'), None)
@@ -233,7 +227,7 @@ def create_fullscreen_table(slide_id, table_data, page_elements, page_size):
     return requests
 
 # --- Main Slide Creation Logic ---
-def add_slide_to_presentation(slides_service, drive_service, s3_client, presentation_id, slide_index, slide_data, layout_map, class_to_layout_name_map, page_size, globals_config):
+def add_slide_to_presentation(slides_service, drive_service, s3_client, presentation_id, slide_index, slide_data, layout_map, class_to_layout_name_map, placeholder_map, page_size, globals_config):
     layout_class = slide_data.get('layoutClass', 'default')
     layout_name = class_to_layout_name_map.get(layout_class)
     layout_id = layout_map.get(layout_name)
@@ -276,20 +270,30 @@ def add_slide_to_presentation(slides_service, drive_service, s3_client, presenta
     image_ref = slide_data.get("imageReference", {})
     image_ref["json_file_base"] = slide_data.get("json_file_base")
     
+    # Check for placeholder override for the body
+    body_placeholder_type = placeholder_map.get(layout_class, {}).get('body_placeholder', 'BODY')
+
     if layout_class == "image_fullscreen" and "imageReference" in slide_data:
-        if img_req := create_fullscreen_image(s3_client, slide_id, slide_index, image_ref, page_size): content_requests.append(img_req)
+        if img_req := create_image_on_slide(s3_client, slide_id, slide_index, image_ref, page_size, 'fullscreen'): content_requests.append(img_req)
+    
+    elif layout_class == 'image_right':
+        # Use the mapped placeholder for the body text
+        if 'body' in slide_data and placeholders[body_placeholder_type]:
+            # For this layout, you mentioned the text goes in the right-middle subtitle
+            # We'll sort by horizontal position to find the rightmost one.
+            rightmost_subtitle = sorted(placeholders[body_placeholder_type], key=lambda x: x['transform'].get('translateX', 0), reverse=True)[0]
+            content_requests.extend(get_rich_text_requests(rightmost_subtitle['objectId'], slide_data['body']))
+        
+        # Place the image on the left half
+        if 'imageReference' in slide_data:
+            if img_req := create_image_on_slide(s3_client, slide_id, slide_index, image_ref, page_size, 'left_half'): content_requests.append(img_req)
+
     elif layout_class == "table_fullscreen" and 'table' in slide_data:
         content_requests.extend(create_fullscreen_table(slide_id, slide_data['table'], page_elements, page_size))
-    elif layout_class == 'image_right':
-        if 'body' in slide_data and placeholders['BODY']:
-            content_requests.extend(get_rich_text_requests(placeholders['BODY'][0]['objectId'], slide_data['body']))
-        if 'imageReference' in slide_data and placeholders['PICTURE']:
-            if img_req := create_image_in_placeholder(s3_client, slide_id, slide_index, image_ref, placeholders['PICTURE'][0]): content_requests.append(img_req)
-        elif 'imageReference' in slide_data:
-            logging.warning(f"  - Slide {slide_index+1}: Found image but no 'PICTURE' placeholder.")
-    else:
-        if 'body' in slide_data and placeholders['BODY']:
-            content_requests.extend(get_rich_text_requests(placeholders['BODY'][0]['objectId'], slide_data['body']))
+
+    else: # Default behavior for all other layouts
+        if 'body' in slide_data and placeholders[body_placeholder_type]:
+            content_requests.extend(get_rich_text_requests(placeholders[body_placeholder_type][0]['objectId'], slide_data['body']))
             
     if 'speakerNotes' in slide_data:
         notes_page = slides_service.presentations().pages().get(presentationId=presentation_id, pageObjectId=slide_id).execute()
@@ -312,7 +316,9 @@ def main():
     config = load_config()
     if not config: sys.exit(1)
     
-    class_to_layout_name_map, globals_config = config.get('layout_mapping', {}), config.get('globals', {})
+    class_to_layout_name_map = config.get('layout_mapping', {})
+    placeholder_map = config.get('placeholder_mapping', {}) # Load the new mapping
+    globals_config = config.get('globals', {})
 
     json_files = glob.glob(os.path.join(SOURCE_DIRECTORY, '*.json'))
     if not json_files:
@@ -348,7 +354,7 @@ def main():
             json_file_base = os.path.splitext(os.path.basename(json_file))[0]
             for i, slide_data in enumerate(slides):
                 slide_data['total_slides'], slide_data['json_file_base'] = len(slides), json_file_base
-                add_slide_to_presentation(slides_service, drive_service, s3_client, presentation_id, i, slide_data, layout_map, class_to_layout_name_map, page_size, globals_config)
+                add_slide_to_presentation(slides_service, drive_service, s3_client, presentation_id, i, slide_data, layout_map, class_to_layout_name_map, placeholder_map, page_size, globals_config)
 
             logging.info(f"✅ Successfully created presentation: https://docs.google.com/presentation/d/{presentation_id}/")
 

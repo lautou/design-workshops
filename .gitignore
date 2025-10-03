@@ -1,7 +1,9 @@
 .cache_info.json
+.env
 *.log
+credentials.json
 extracted_images/*
-json_source/*
-service-account.json
-source_documents/*
 generated-prompt.md
+json_source/*
+source_documents/*
+token.json

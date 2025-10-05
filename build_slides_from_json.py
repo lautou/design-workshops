@@ -7,6 +7,7 @@ import yaml
 import re
 import uuid
 from dotenv import load_dotenv
+import fitz  # PyMuPDF
 
 # Google Auth and API Libraries
 from google.auth.transport.requests import Request
@@ -115,53 +116,39 @@ def replace_master_slide_text(slides_service, presentation_id, master_id, replac
         except HttpError as err: logging.warning(f"Could not perform master slide replacements: {err}")
 
 def clean_text_content(text):
-    if not isinstance(text, str): return text
-    return re.sub(r'\[cite(_start|:[\d,\s]+)\]', '', text).strip()
+    if not isinstance(text, str):
+        return text
+    # This regex finds and removes all variations of [cite...] tags.
+    return re.sub(r'\u005B\u0063\u0069\u0074\u0065.*?\u005D', '', text).strip()
 
 def get_rich_text_requests(object_id, body_lines):
-    """Generates API requests for populating a shape with richly formatted text, handling markdown."""
-    requests = []
-    
-    plain_text_lines = []
-    formatted_lines = []
+    requests, plain_text_lines, formatted_lines = [], [], []
     for line in body_lines:
-        stripped_line = line.lstrip()
-        indentation = len(line) - len(stripped_line)
-        nesting_level = indentation // 2
-        is_bullet = stripped_line.startswith('- ')
-        
-        text_for_formatting = stripped_line.lstrip('- ').strip()
-        plain_text = text_for_formatting.replace('**', '')
-        
+        cleaned_line = clean_text_content(line)
+        stripped = cleaned_line.lstrip()
+        is_bullet = stripped.startswith('- ')
+        text_for_fmt = stripped.lstrip('- ').strip()
+        plain_text = text_for_fmt.replace('**', '')
         plain_text_lines.append(plain_text)
-        formatted_lines.append({'text': plain_text, 'original': text_for_formatting, 'is_bullet': is_bullet, 'level': nesting_level})
-        
+        formatted_lines.append({'text': plain_text, 'original': text_for_fmt, 'is_bullet': is_bullet, 'level': (len(cleaned_line) - len(stripped)) // 2})
+    
     full_text = "\n".join(plain_text_lines)
     if not full_text: return []
-
     requests.append({"insertText": {"objectId": object_id, "text": full_text}})
-
-    current_offset = 0
+    offset = 0
     for line_info in formatted_lines:
-        line_text, original_text, is_bullet, nesting_level = line_info.values()
-        line_end = current_offset + len(line_text)
-
+        line_text, original, is_bullet, level = line_info.values()
+        line_end = offset + len(line_text)
         if is_bullet:
-            requests.append({"createParagraphBullets": {"objectId": object_id, "textRange": {"type": "FIXED_RANGE", "startIndex": current_offset, "endIndex": line_end}}})
-            if nesting_level > 0:
-                requests.append({"updateParagraphStyle": {"objectId": object_id, "textRange": {"type": "FIXED_RANGE", "startIndex": current_offset, "endIndex": line_end}, "style": {"indentStart": {"magnitude": 18 * nesting_level, "unit": "PT"}}, "fields": "indentStart"}})
-
-        for match in re.finditer(r'\*\*(.*?)\*\*', original_text):
-            bold_text = match.group(1)
+            requests.append({"createParagraphBullets": {"objectId": object_id, "textRange": {"type": "FIXED_RANGE", "startIndex": offset, "endIndex": line_end}}})
+            if level > 0:
+                requests.append({"updateParagraphStyle": {"objectId": object_id, "textRange": {"type": "FIXED_RANGE", "startIndex": offset, "endIndex": line_end}, "style": {"indentStart": {"magnitude": 18 * level, "unit": "PT"}}, "fields": "indentStart"}})
+        for match in re.finditer(r'\*\*(.*?)\*\*', original):
             try:
-                start_index_in_line = line_text.index(bold_text)
-                start, end = current_offset + start_index_in_line, current_offset + start_index_in_line + len(bold_text)
-                requests.append({"updateTextStyle": {"objectId": object_id, "textRange": {"type": "FIXED_RANGE", "startIndex": start, "endIndex": end}, "style": {"bold": True}, "fields": "bold"}})
-            except ValueError:
-                pass 
-        
-        current_offset = line_end + 1
-    
+                start = offset + line_text.index(match.group(1))
+                requests.append({"updateTextStyle": {"objectId": object_id, "textRange": {"type": "FIXED_RANGE", "startIndex": start, "endIndex": start + len(match.group(1))}, "style": {"bold": True}, "fields": "bold"}})
+            except ValueError: pass
+        offset = line_end + 1
     return requests
 
 # --- AWS S3 Image Upload ---
@@ -178,15 +165,37 @@ def get_placeholder_bounds(placeholders):
     bounds = {}
     for p_type, p_list in placeholders.items():
         if p_list:
-            p = p_list[0]
-            transform, size = p.get('transform', {}), p.get('size', {})
-            bounds[p_type] = {'x': transform.get('translateX', 0), 'y': transform.get('translateY', 0), 'width': size.get('width', {}).get('magnitude', 0), 'height': size.get('height', {}).get('magnitude', 0)}
-            # Special handling for header/footer from subtitles
+            # Sort by Y position to handle header/footer subtitles correctly
+            p_list.sort(key=lambda p: p.get('transform', {}).get('translateY', 0))
+            
+            # Special handling for SUBTITLE to distinguish header and footer
             if p_type == 'SUBTITLE' and len(p_list) > 1:
-                p_list.sort(key=lambda p: p['transform'].get('translateY', 0))
-                header, footer = p_list[0], p_list[-1]
-                bounds['HEADER'] = {'y': header['transform'].get('translateY', 0), 'height': header['size']['height']['magnitude']}
-                bounds['FOOTER'] = {'y': footer['transform'].get('translateY', 0), 'height': footer['size']['height']['magnitude']}
+                header = p_list[0]
+                footer = p_list[-1]
+                
+                # Header
+                transform, size = header.get('transform', {}), header.get('size', {})
+                bounds['HEADER'] = {
+                    'x': transform.get('translateX', 0), 'y': transform.get('translateY', 0),
+                    'width': size.get('width', {}).get('magnitude', 0) * abs(transform.get('scaleX', 1.0)),
+                    'height': size.get('height', {}).get('magnitude', 0) * abs(transform.get('scaleY', 1.0))
+                }
+                
+                # Footer
+                transform, size = footer.get('transform', {}), footer.get('size', {})
+                bounds['FOOTER'] = {
+                    'x': transform.get('translateX', 0), 'y': transform.get('translateY', 0),
+                    'width': size.get('width', {}).get('magnitude', 0) * abs(transform.get('scaleX', 1.0)),
+                    'height': size.get('height', {}).get('magnitude', 0) * abs(transform.get('scaleY', 1.0))
+                }
+            else:
+                p = p_list[0]
+                transform, size = p.get('transform', {}), p.get('size', {})
+                bounds[p_type] = {
+                    'x': transform.get('translateX', 0), 'y': transform.get('translateY', 0),
+                    'width': size.get('width', {}).get('magnitude', 0) * abs(transform.get('scaleX', 1.0)),
+                    'height': size.get('height', {}).get('magnitude', 0) * abs(transform.get('scaleY', 1.0))
+                }
     return bounds
 
 def create_image_on_slide(s3_client, slide_id, slide_index, image_ref, page_size, placeholders, position='fullscreen'):
@@ -201,48 +210,82 @@ def create_image_on_slide(s3_client, slide_id, slide_index, image_ref, page_size
     image_url = upload_image_to_s3(s3_client, image_path, slide_index)
     if not image_url: return None
 
+    try:
+        with fitz.open(image_path) as img_doc:
+            img = img_doc[0]
+            img_width, img_height = img.rect.width, img.rect.height
+            img_aspect_ratio = img_width / img_height if img_height > 0 else 1
+    except Exception as e:
+        logging.error(f"  - Could not get image dimensions for {image_path}. Using default 4:3. Error: {e}")
+        img_aspect_ratio = 4 / 3
+
     bounds = get_placeholder_bounds(placeholders)
     page_width, page_height = page_size['width']['magnitude'], page_size['height']['magnitude']
-    img_width, img_height = 1200, 900 
-    margin = 360000
-
-    top_bound = bounds.get('TITLE', {}).get('y', 0) + bounds.get('TITLE', {}).get('height', 0)
-    bottom_bound = bounds.get('FOOTER', {}).get('y', page_height - margin)
-    
-    available_y = top_bound + (margin / 4)
-    available_height = bottom_bound - available_y
 
     if position == 'fullscreen':
-        available_x = margin
-        available_width = page_width - (2 * margin)
-    else: # left_half
-        available_x = margin
-        right_text_bound_x = next((p['transform']['translateX'] for p in placeholders.get('SUBTITLE', []) if p['transform'].get('translateX', 0) > page_width / 2), page_width - margin)
-        available_width = right_text_bound_x - margin - (margin / 2)
+        title_bottom = bounds.get('TITLE', {}).get('y', 0) + bounds.get('TITLE', {}).get('height', 0)
+        footer_top = bounds.get('FOOTER', {}).get('y', page_height)
+        
+        available_height = footer_top - title_bottom
+        final_height = available_height
+        final_width = final_height * img_aspect_ratio
 
-    scale = min(available_width / img_width, available_height / img_height)
-    final_width, final_height = img_width * scale, img_height * scale
-    
-    pos_x = available_x + (available_width - final_width) / 2
-    pos_y = available_y + (available_height - final_height) / 2
+        if final_width > page_width:
+            final_width = page_width
+            final_height = final_width / img_aspect_ratio
+        
+        pos_x = (page_width - final_width) / 2
+        pos_y = title_bottom
+    else:  # left_half for image_right
+        title_bottom = bounds.get('TITLE', {}).get('y', 0) + bounds.get('TITLE', {}).get('height', 0)
+        
+        # Find the main content placeholder (either SUBTITLE or BODY)
+        main_content_subtitle = next((p for p in placeholders.get('SUBTITLE', []) if p['transform'].get('translateY', 0) > title_bottom), None)
+        
+        if main_content_subtitle:
+             main_content_bounds = get_placeholder_bounds({'SUBTITLE': [main_content_subtitle]})['SUBTITLE']
+        elif placeholders.get('BODY'):
+             main_content_bounds = get_placeholder_bounds({'BODY': placeholders['BODY']})['BODY']
+        else:
+             main_content_bounds = {'x': 0, 'y': title_bottom, 'width': page_width, 'height': page_height - title_bottom}
+        
+        available_height = main_content_bounds['height']
+        
+        title_left = bounds.get('TITLE', {}).get('x', 0)
+        main_content_left = main_content_bounds['x']
+        available_width = main_content_left - title_left
 
-    return {"createImage": {"url": image_url, "elementProperties": {"pageObjectId": slide_id, "size": {"width": {"magnitude": final_width, "unit": "EMU"}, "height": {"magnitude": final_height, "unit": "EMU"}}, "transform": {"scaleX": 1, "scaleY": 1, "translateX": pos_x, "translateY": pos_y, "unit": "EMU"}}}}
+        final_height = available_height
+        final_width = final_height * img_aspect_ratio
+        
+        if final_width > available_width:
+            final_width = available_width
+            final_height = final_width / img_aspect_ratio
+
+        pos_x = title_left
+        pos_y = main_content_bounds['y'] + (main_content_bounds['height'] - final_height) / 2
+
+    logging.info(f"  - Calculated image properties: ratio={img_aspect_ratio:.2f}, width={int(final_width)}, height={int(final_height)}, x={int(pos_x)}, y={int(pos_y)}")
+    return {"createImage": {"url": image_url, "elementProperties": {"pageObjectId": slide_id, "size": {"width": {"magnitude": int(final_width), "unit": "EMU"}, "height": {"magnitude": int(final_height), "unit": "EMU"}}, "transform": {"scaleX": 1, "scaleY": 1, "translateX": int(pos_x), "translateY": int(pos_y), "unit": "EMU"}}}}
 
 def create_fullscreen_table(slide_id, table_data, page_elements, page_size):
-    title_placeholder = next((el for el in page_elements if el.get('shape', {}).get('placeholder', {}).get('type') == 'TITLE'), None)
-    top_margin = 360000 
-    if title_placeholder:
-        title_transform, title_size = title_placeholder.get('transform', {}), title_placeholder.get('size', {})
-        top_margin = title_transform.get('translateY', 0) + title_size.get('height', {}).get('magnitude', 0) + 180000
+    bounds = get_placeholder_bounds({p.get('shape', {}).get('placeholder', {}).get('type'): [p] for p in page_elements if p.get('shape', {}).get('placeholder')})
     page_width, page_height = page_size['width']['magnitude'], page_size['height']['magnitude']
-    available_width, available_height = page_width - (2 * 360000), page_height - top_margin - 360000
+    top_margin = bounds.get('TITLE', {}).get('y', 0) + bounds.get('TITLE', {}).get('height', 0) + 180000
+    bottom_margin = page_height - bounds.get('FOOTER', {}).get('y', page_height - 360000)
+    available_width, available_height = page_width - (2 * 360000), page_height - top_margin - bottom_margin
+    pos_x = (page_width - available_width) / 2
+    table_height = available_height * 0.9
+    pos_y = top_margin + (available_height - table_height) / 2
+    
     rows, cols = len(table_data.get('rows', [])) + 1, len(table_data.get('headers', []))
     if not (rows > 1 and cols > 0): return []
+
     table_id = str(uuid.uuid4())
-    requests = [{"createTable": {"objectId": table_id, "elementProperties": {"pageObjectId": slide_id, "size": {"width": {"magnitude": available_width, "unit": "EMU"}, "height": {"magnitude": available_height, "unit": "EMU"}}, "transform": {"scaleX": 1, "scaleY": 1, "translateX": 360000, "translateY": top_margin, "unit": "EMU"}}, "rows": rows, "columns": cols}}]
+    requests = [{"createTable": {"objectId": table_id, "elementProperties": {"pageObjectId": slide_id, "size": {"width": {"magnitude": available_width, "unit": "EMU"}, "height": {"magnitude": table_height, "unit": "EMU"}}, "transform": {"scaleX": 1, "scaleY": 1, "translateX": pos_x, "translateY": pos_y, "unit": "EMU"}}, "rows": rows, "columns": cols}}]
     for c, header in enumerate(table_data['headers']):
         requests.extend([{"insertText": {"objectId": table_id, "cellLocation": {"rowIndex": 0, "columnIndex": c}, "text": clean_text_content(header)}}, {"updateTextStyle": {"objectId": table_id, "cellLocation": {"rowIndex": 0, "columnIndex": c}, "style": {"bold": True}, "fields": "bold"}}])
-    for r, row_data in enumerate(table_data['rows']):
+    for r, row_data in enumerate(table_data.get('rows', [])):
         for c, cell_text in enumerate(row_data):
             requests.append({"insertText": {"objectId": table_id, "cellLocation": {"rowIndex": r + 1, "columnIndex": c}, "text": clean_text_content(str(cell_text))}})
     return requests
@@ -267,12 +310,44 @@ def add_slide_to_presentation(slides_service, drive_service, s3_client, presenta
         if ph := el.get('shape', {}).get('placeholder'):
             if (p_type := ph.get('type')) in placeholders:
                 placeholders[p_type].append({'objectId': el.get('objectId'), 'transform': el.get('transform', {}), 'size': el.get('size', {})})
-    
+
+    if layout_class in ['image_right', 'image_fullscreen']:
+        title_y = 0
+        if placeholders.get('TITLE'):
+             title_transform = placeholders['TITLE'][0].get('transform', {})
+             title_y = title_transform.get('translateY', 0)
+
+        for p_type, p_list in placeholders.items():
+            if not p_list: continue
+            
+            p_list.sort(key=lambda p: p['transform'].get('translateY', 0))
+            
+            for i, p in enumerate(p_list):
+                transform = p.get('transform', {})
+                size = p.get('size', {})
+                width = size.get('width', {}).get('magnitude', 0)
+                height = size.get('height', {}).get('magnitude', 0)
+                x = transform.get('translateX', 0)
+                y = transform.get('translateY', 0)
+                scale_x = transform.get('scaleX', 1.0)
+                scale_y = transform.get('scaleY', 1.0)
+                
+                kind = ""
+                if p_type == 'SUBTITLE':
+                    if y < title_y:
+                        kind = " (header)"
+                    elif y > (page_size['height']['magnitude'] / 2):
+                        kind = " (footer)"
+                    else:
+                        kind = " (main content)"
+
+                logging.info(f"  - Placeholder '{p_type}{kind}': x={int(x)}, y={int(y)}, width={int(width*abs(scale_x))}, height={int(height*abs(scale_y))}, scaleX={scale_x}, scaleY={scale_y}")
+
     if placeholders['SUBTITLE']:
         placeholders['SUBTITLE'].sort(key=lambda x: x['transform'].get('translateY', 0))
 
-    content_requests, image_ref = [], slide_data.get("imageReference", {})
-    image_ref["json_file_base"] = slide_data.get("json_file_base")
+    content_requests, image_ref = [], slide_data.get("imageReference")
+    if image_ref: image_ref["json_file_base"] = slide_data.get("json_file_base")
     body_placeholder_type = placeholder_map.get(layout_class, {}).get('body_placeholder', 'BODY')
 
     if 'title' in slide_data and placeholders['TITLE']:
@@ -287,13 +362,26 @@ def add_slide_to_presentation(slides_service, drive_service, s3_client, presenta
             footer_id = (placeholders.get('FOOTER') or [{}])[0].get('objectId') or (subs[-1]['objectId'] if len(subs) > 1 else None)
             if globals_config.get('footer') and footer_id: content_requests.append({"insertText": {"objectId": footer_id, "text": globals_config['footer']}})
     
-    if layout_class == "image_fullscreen" and "imageReference" in slide_data:
+    if layout_class == 'columns':
+        body_content = slide_data.get('body', [])
+        bold_titles = [i for i, line in enumerate(body_content) if line.strip().startswith('**')]
+        split_index = bold_titles[1] if len(bold_titles) > 1 else -1
+        
+        left_body, right_body = (body_content[:split_index], body_content[split_index:]) if split_index != -1 else (body_content, [])
+        body_placeholders = sorted(placeholders.get('BODY', []), key=lambda p: p['transform'].get('translateX', 0))
+
+        if len(body_placeholders) > 0 and left_body:
+            content_requests.extend(get_rich_text_requests(body_placeholders[0]['objectId'], left_body))
+        if len(body_placeholders) > 1 and right_body:
+            content_requests.extend(get_rich_text_requests(body_placeholders[1]['objectId'], right_body))
+
+    elif layout_class == "image_fullscreen" and image_ref:
         if img_req := create_image_on_slide(s3_client, slide_id, slide_index, image_ref, page_size, placeholders, 'fullscreen'): content_requests.append(img_req)
     elif layout_class == 'image_right':
         if 'body' in slide_data and placeholders.get(body_placeholder_type):
             rightmost_subtitle = sorted(placeholders[body_placeholder_type], key=lambda x: x['transform'].get('translateX', 0), reverse=True)[0]
             content_requests.extend(get_rich_text_requests(rightmost_subtitle['objectId'], slide_data['body']))
-        if 'imageReference' in slide_data:
+        if image_ref:
             if img_req := create_image_on_slide(s3_client, slide_id, slide_index, image_ref, page_size, placeholders, 'left_half'): content_requests.append(img_req)
     elif layout_class == "table_fullscreen" and 'table' in slide_data:
         content_requests.extend(create_fullscreen_table(slide_id, slide_data['table'], page_elements, page_size))
@@ -356,4 +444,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

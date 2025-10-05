@@ -1,5 +1,6 @@
 .cache_info.json
 .env
+.venv
 *.log
 credentials.json
 extracted_images/*

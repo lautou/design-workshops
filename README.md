@@ -8,6 +8,7 @@ The pipeline is designed to be robust and developer-friendly, focusing on a manu
 
 - **Automated Document Retrieval**: Downloads all required source PDFs from product documentation sites with a single command.
 - **Batch Prompt Generation**: Creates a separate, clean markdown prompt file in the `generated_prompts/` directory for every workshop enabled in `workshops.yaml`.
+- **Flexible Content Scope**: Supports optional, ODF-specific source files to generate tailored content for different customer environments.
 - **Structured JSON Workflow**: The AI generates a clean, structured JSON file, making the pipeline reliable and eliminating parsing errors.
 - **AI-Powered Content & Image Curation**: Leverages Gemini to generate all slide text and to identify relevant diagrams in your source PDFs.
 - **Automated Image Extraction & Cloud Upload**: Automatically extracts referenced images and uploads them to a public AWS S3 bucket for seamless integration into Google Slides.
@@ -33,6 +34,20 @@ First, run the installation script. It will create a Python virtual environment,
 ./install.sh
 ```
 
+The script will stop and prompt you to configure the newly created `.env` file.
+
+**Step 2b: Configure Your `.env` File**
+
+Open the `.env` file and fill in all the required values.
+
+**Step 2c: Finalize Setup**
+
+Run the installation script again. This time, it will detect your configuration and proceed to automatically create and configure your S3 bucket.
+
+```bash
+./install.sh
+```
+
 The project is now fully configured and ready to run.
 
 ## **The Final Workflow**
@@ -48,9 +63,9 @@ This step uses the `doc_downloader` utility to download all necessary PDF docume
 ./run.sh download-docs
 ```
 
-### **Step 2: Generate the Prompt File**
+### **Step 2: Generate the Prompt Files**
 
-This command reads your `workshops.yaml` file and creates a unique, `prompt-WORKSHOP_NAME.md`, file in the `generated_prompts` directory for every workshop that has `enabled: true`.
+This command reads your `workshops.yaml` file and creates a unique `prompt-WORKSHOP_NAME.md` file in the `generated_prompts/` directory for **every** workshop that has `enabled: true`.
 
 ```bash
 # Generate prompts for all enabled workshops
@@ -59,11 +74,11 @@ This command reads your `workshops.yaml` file and creates a unique, `prompt-WORK
 
 ### **Step 3: Generate JSON in the Gemini UI**
 
-For each prompt file in the `generated_prompts/` directory.
+For each prompt file in the `generated_prompts/` directory:
 
 1. Go to your corporate Gemini web UI (e.g., gemini.google.com).
-2. **Open** one of the `prompt-*.md` files. It will tell you exactly which source documents you need to upload for that specific workshop.
-3. **Upload those specific source files** using the file attachment feature.
+2. **Open** one of the `prompt-*.md` files. It will list the **REQUIRED FILES** and any **OPTIONAL ODF-RELATED FILES**.
+3. Decide if you want to include ODF content, then **upload the appropriate source files** using the file attachment feature.
 4. **Copy and paste** the entire prompt from the file into the Gemini chat box and submit it.
 
 ### **Step 4: Save the JSON Output**
@@ -71,7 +86,7 @@ For each prompt file in the `generated_prompts/` directory.
 1. **Copy** the complete JSON code block from the Gemini UI.
 2. **Save** this content to a new file inside your local `json_source/` directory. It's best practice to name the JSON file after the workshop (e.g., `ocp-baremetal.json`).
 
-Repeat steps 3 and 4 for each prompt section in the consolidated file.
+Repeat steps 3 and 4 for each prompt file you generated.
 
 ### **Step 5: Extract Images and Build Slides**
 
@@ -81,11 +96,11 @@ Repeat steps 3 and 4 for each prompt section in the consolidated file.
 ./run.sh extract-images
 ```
 
-2.  This script reads **all** JSON files in the `json_source` directory and extracts the referenced images.
-3.  **Build the Final Slides:**
+2. This script reads **all** JSON files in the `json_source` directory and extracts the referenced images.
+3. **Build the Final Slides:**
 
 ```bash
 ./run.sh build-slides
 ```
 
-4.  This script reads **all** JSON files in the `json_source` directory and creates a separate Google Slides presentation for each one.
+4. This script reads **all** JSON files in the `json_source` directory and creates a separate Google Slides presentation for each one.

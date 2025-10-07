@@ -70,7 +70,7 @@ if __name__ == "__main__":
     
     for workshop in enabled_workshops:
         title = workshop['title']
-        id_prefix = workshop.get('id_prefix', 'GENERAL') # Get the prefix from yaml
+        id_prefix = workshop.get('id_prefix', 'GENERAL')
         logging.info(f"  - Generating prompt for: '{title}' (Prefix: {id_prefix})")
         
         # Replace placeholders in the base template
@@ -80,12 +80,20 @@ if __name__ == "__main__":
         task_prompt = f"\nCurrent Task:\nGenerate the slide deck for the workshop: \"{title}\"."
         final_prompt = prompt_with_prefix + task_prompt
         
-        prompt_header = (
-            f"# -- PROMPT FOR: {title} --\n\n"
-            f"## REQUIRED FILES TO UPLOAD MANUALLY TO THE GEMINI UI:\n"
-        )
-        for pattern in workshop.get('source_files', []):
-            prompt_header += f"- `{pattern}`\n"
+        # Build the header with separate sections for required and optional files
+        prompt_header = f"# -- PROMPT FOR: {title} --\n\n"
+        
+        if workshop.get('source_files'):
+            prompt_header += "## REQUIRED FILES TO UPLOAD MANUALLY TO THE GEMINI UI:\n"
+            for pattern in workshop['source_files']:
+                prompt_header += f"- `{pattern}`\n"
+        
+        if workshop.get('option_odf_source_files'):
+            prompt_header += "\n## OPTIONAL ODF-RELATED FILES TO UPLOAD:\n"
+            prompt_header += "### (Upload these ONLY if the workshop should include ODF-specific content)\n"
+            for pattern in workshop['option_odf_source_files']:
+                prompt_header += f"- `{pattern}`\n"
+
         prompt_header += "\n---\n\n"
 
         full_prompt_content = prompt_header + final_prompt

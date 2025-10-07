@@ -7,7 +7,7 @@ The pipeline is designed to be robust and developer-friendly, focusing on a manu
 ## **Features**
 
 - **Automated Document Retrieval**: Downloads all required source PDFs from product documentation sites with a single command.
-- **Batch Prompt Generation**: Creates a separate, clean markdown prompt file in the `generated_prompts/` directory for every workshop enabled in `workshops.yaml`.
+- **Intelligent Prompt Generation**: Creates tailored prompt files, including a two-step process for workshops that exceed the 10-file upload limit.
 - **Flexible Content Scope**: Supports optional, ODF-specific source files to generate tailored content for different customer environments.
 - **Structured JSON Workflow**: The AI generates a clean, structured JSON file, making the pipeline reliable and eliminating parsing errors.
 - **AI-Powered Content & Image Curation**: Leverages Gemini to generate all slide text and to identify relevant diagrams in your source PDFs.
@@ -56,39 +56,51 @@ The entire process is managed through a series of simple commands using a single
 
 ### **Step 1: Download Source Documents**
 
-This step uses the `doc_downloader` utility to download all necessary PDF documentation into the `source_documents/` directory.
-
 ```bash
-# Download all documents defined in the config
 ./run.sh download-docs
 ```
 
 ### **Step 2: Generate the Prompt Files**
 
-This command reads your `workshops.yaml` file and creates a unique `prompt-WORKSHOP_NAME.md` file in the `generated_prompts/` directory for **every** workshop that has `enabled: true`.
+This command reads your workshops.yaml file and generates the necessary prompt files in the generated_prompts/ directory for every workshop that has enabled: true.
 
 ```bash
-# Generate prompts for all enabled workshops
 ./run.sh generate-prompt
 ```
 
+For workshops with 10 or fewer source files, it will create a single prompt file. For workshops that need consolidation, it will create two: a "Step 1" for consolidation and a "Step 2" for JSON generation.
+
 ### **Step 3: Generate JSON in the Gemini UI**
 
-For each prompt file in the `generated_prompts/` directory:
+You will now process the files from the generated_prompts/ directory.
 
-1. Go to your corporate Gemini web UI (e.g., gemini.google.com).
-2. **Open** one of the `prompt-*.md` files. It will list the **REQUIRED FILES** and any **OPTIONAL ODF-RELATED FILES**.
-3. Decide if you want to include ODF content, then **upload the appropriate source files** using the file attachment feature.
-4. **Copy and paste** the entire prompt from the file into the Gemini chat box and submit it.
+#### **For Standard Workshops (Fewer than 10 source files):**
 
-### **Step 4: Save the JSON Output**
+1. Open the prompt-WORKSHOP_NAME.md file.
+2. Go to the Gemini UI, upload the required and any optional files listed in the prompt's header.
+3. Copy and paste the entire prompt and save the resulting JSON to the json_source/ directory.
 
-1. **Copy** the complete JSON code block from the Gemini UI.
-2. **Save** this content to a new file inside your local `json_source/` directory. It's best practice to name the JSON file after the workshop (e.g., `ocp-baremetal.json`).
+#### **For Large Workshops (More than 10 source files):**
 
-Repeat steps 3 and 4 for each prompt file you generated.
+This is a two-step process that requires batching to overcome the 10-file limit.
 
-### **Step 5: Extract Images and Build Slides**
+**Step 3a: Consolidate Sources (in Batches)**
+
+1. Open the prompt-consolidation-WORKSHOP_NAME.md file. The header contains critical instructions and lists the source files in numbered batches.
+2. For **each batch**, start a new chat in the Gemini UI, upload the files for that batch, and run the consolidation prompt from the bottom of the file.
+3. Append the markdown output from each run into a single, temporary text file.
+4. Once all batches are processed, save the combined markdown text to the consolidated_sources/ directory with the filename specified in the prompt's instructions.
+
+**Step 3b: Generate the Final JSON**
+
+1. Open the prompt-json-generation-WORKSHOP_NAME.md file.
+2. In a **new** Gemini chat, upload only the files it requires (the newly created consolidated file and the \*.adoc files).
+3. Copy and paste this second prompt and run it.
+4. Save the final JSON output to the json_source/ directory.
+
+### **Step 4: Extract Images and Build Slides**
+
+Once all your JSON files are in the json_source/ directory:
 
 1. **Extract Images:**
 
@@ -96,11 +108,8 @@ Repeat steps 3 and 4 for each prompt file you generated.
 ./run.sh extract-images
 ```
 
-2. This script reads **all** JSON files in the `json_source` directory and extracts the referenced images.
-3. **Build the Final Slides:**
+2. **Build the Final Slides:**
 
 ```bash
 ./run.sh build-slides
 ```
-
-4. This script reads **all** JSON files in the `json_source` directory and creates a separate Google Slides presentation for each one.

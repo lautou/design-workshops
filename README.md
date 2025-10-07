@@ -7,7 +7,7 @@ The pipeline is designed to be robust and developer-friendly, focusing on a manu
 ## **Features**
 
 - **Automated Document Retrieval**: Downloads all required source PDFs from product documentation sites with a single command.
-- **File-based Prompt Generation**: Creates a clean markdown file containing the perfect, context-rich prompt for manual execution in the Gemini web UI.
+- **Batch Prompt Generation**: Creates a separate, clean markdown prompt file in the `generated_prompts/` directory for every workshop enabled in `workshops.yaml`.
 - **Structured JSON Workflow**: The AI generates a clean, structured JSON file, making the pipeline reliable and eliminating parsing errors.
 - **AI-Powered Content & Image Curation**: Leverages Gemini to generate all slide text and to identify relevant diagrams in your source PDFs.
 - **Automated Image Extraction & Cloud Upload**: Automatically extracts referenced images and uploads them to a public AWS S3 bucket for seamless integration into Google Slides.
@@ -33,93 +33,59 @@ First, run the installation script. It will create a Python virtual environment,
 ./install.sh
 ```
 
-The script will stop and prompt you to configure the newly created `.env` file.
-
-**Step 2b: Configure Your `.env` File**
-
-Open the `.env` file and fill in all the required values:
-
-- `TEMPLATE_PRESENTATION_ID`
-- `OUTPUT_FOLDER_ID`
-- `TARGET_THEME_NAME`
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `S3_BUCKET_NAME` (choose a globally unique name)
-- `AWS_REGION`
-
-**Step 2c: Finalize Setup**
-
-Run the installation script again. This time, it will detect your configuration and proceed to automatically create and configure your S3 bucket.
-
-Bash
-
-```
-./install.sh
-```
-
 The project is now fully configured and ready to run.
 
 ## **The Final Workflow**
 
-The entire process is managed through a series of simple commands.
+The entire process is managed through a series of simple commands using a single script.
 
 ### **Step 1: Download Source Documents**
 
-This step uses the `doc_downloader` utility to read the URLs from `doc_downloader/download_config.yaml` and download all the necessary PDF documentation into the `source_documents/` directory.
+This step uses the `doc_downloader` utility to download all necessary PDF documentation into the `source_documents/` directory.
 
-Bash
-
-```
+```bash
 # Download all documents defined in the config
 ./run.sh download-docs
-
-# Force a re-download of all documents, ignoring the cache
-./run.sh download-docs --no-cache
 ```
 
 ### **Step 2: Generate the Prompt File**
 
-This command reads your `workshops.yaml` file, constructs the full prompt for the first enabled workshop, and saves it to `generated-prompt.md`.
+This command reads your `workshops.yaml` file and creates a unique, `prompt-WORKSHOP_NAME.md`, file in the `generated_prompts` directory for every workshop that has `enabled: true`.
 
-Bash
-
-```
-# Generate the prompt for the first enabled workshop
+```bash
+# Generate prompts for all enabled workshops
 ./run.sh generate-prompt
 ```
 
 ### **Step 3: Generate JSON in the Gemini UI**
 
+For each prompt file in the `generated_prompts/` directory.
+
 1. Go to your corporate Gemini web UI (e.g., gemini.google.com).
-2. **Open** the `generated-prompt.md` file. It will tell you exactly which source documents you need to upload.
-3. **Upload the required source files** using the file attachment feature.
-4. **Copy and paste** the entire prompt from `generated-prompt.md` into the Gemini chat box and submit it.
+2. **Open** one of the `prompt-*.md` files. It will tell you exactly which source documents you need to upload for that specific workshop.
+3. **Upload those specific source files** using the file attachment feature.
+4. **Copy and paste** the entire prompt from the file into the Gemini chat box and submit it.
 
 ### **Step 4: Save the JSON Output**
 
 1. **Copy** the complete JSON code block from the Gemini UI.
-2. **Save** this content to a new file inside your local `json_source/` directory (e.g., `result.json`).
+2. **Save** this content to a new file inside your local `json_source/` directory. It's best practice to name the JSON file after the workshop (e.g., `ocp-baremetal.json`).
+
+Repeat steps 3 and 4 for each prompt section in the consolidated file.
 
 ### **Step 5: Extract Images and Build Slides**
 
-1. **Extract Images:**  
-   Bash
+1. **Extract Images:**
 
-```
- ./run_build.sh extract
-```
-
-2.  This script reads your new JSON file and extracts the referenced images into the `extracted_images/` directory.
-3.  **Build the Final Slides:**  
-    Bash
-
-```
- ./run_build.sh build
+```bash
+./run.sh extract-images
 ```
 
-4.  The first time you run this, it will open a browser for you to log in and authorize the script. On subsequent runs, it will use a saved `token.json` file. This script will:
+2.  This script reads **all** JSON files in the `json_source` directory and extracts the referenced images.
+3.  **Build the Final Slides:**
 
-- Authenticate with your Google and AWS accounts.
-- Create a new Google Slides presentation in your specified output folder.
-- Upload the extracted images to your AWS S3 bucket.
-- Build the slides, inserting text and the public S3 image URLs.
+```bash
+./run.sh build-slides
+```
+
+4.  This script reads **all** JSON files in the `json_source` directory and creates a separate Google Slides presentation for each one.

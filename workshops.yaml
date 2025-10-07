@@ -17,7 +17,7 @@ workshops:
 
   - title: "OCP on baremetal infrastructure platform and installation specificities"
     id_prefix: "OCP-BM"
-    enabled: false
+    enabled: true
     source_files:
       - "*.adoc"
       - "Openshift_Container_Platform_4.19_-_installing_on_bare_metal.pdf"
@@ -26,14 +26,14 @@ workshops:
 
   - title: "OCP on OpenStack infrastructure platform and installation specificities"
     id_prefix: "OCP-OSP"
-    enabled: false
+    enabled: true
     source_files:
       - "*.adoc"
       - "Openshift_Container_Platform_4.19_-_installing_on_openstack.pdf"
 
   - title: "OCP Networking"
     id_prefix: "OCP-NET"
-    enabled: false
+    enabled: true
     source_files:
       - "*.adoc"
       - "Openshift_Container_Platform_4.19_-_networking_overview.pdf"
@@ -44,7 +44,7 @@ workshops:
 
   - title: "OCP Storage"
     id_prefix: "OCP-STOR"
-    enabled: false
+    enabled: true
     source_files:
       - "*.adoc"
       - "Openshift_Container_Platform_4.19_-_storage.pdf"
@@ -52,7 +52,7 @@ workshops:
 
   - title: "OCP Security"
     id_prefix: "OCP-SEC"
-    enabled: false
+    enabled: true
     source_files:
       - "*.adoc"
       - "Openshift_Container_Platform_4.19_-_security_and_compliance.pdf"
@@ -60,7 +60,7 @@ workshops:
 
   - title: "OCP Platform Administration and Operations"
     id_prefix: "OCP-MGT"
-    enabled: false
+    enabled: true
     source_files:
       - "*.adoc"
       - "Openshift_Container_Platform_4.19_-_machine_management.pdf"
@@ -70,7 +70,7 @@ workshops:
 
   - title: "OCP Observability"
     id_prefix: "OCP-MON"
-    enabled: false
+    enabled: true
     source_files:
       - "*.adoc"
       - "Red_Hat_Openshift_Logging_*.pdf"
@@ -84,7 +84,7 @@ workshops:
 
   - title: "CI/CD with OpenShift Pipelines and GitOps"
     id_prefix: "OCP-CICD"
-    enabled: false
+    enabled: true
     source_files:
       - "*.adoc"
       - "Openshift_Container_Platform_4.19_-_pipelines.pdf"

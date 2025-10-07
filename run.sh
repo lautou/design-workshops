@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # This script is the main entry point for the presentation generation pipeline.
-# It activates the Python virtual environment and then executes the
-# prompt generation script or the document downloader.
+# It provides commands for the entire workflow, from downloading source
+# documents to building the final presentation.
 
 # Navigate to the script's directory to ensure correct file paths
 cd "$(dirname "$0")"
@@ -16,23 +16,34 @@ shift # Remove the command from the arguments list
 case "$COMMAND" in
   "generate-prompt")
     echo "--- Starting Prompt Generation ---"
-    # Run the Python orchestrator to generate the prompt file. It no longer takes arguments.
-    python3 run_pipeline.py
+    python3 generate_prompt.py
     echo "--- Prompt Generation Finished ---"
     ;;
 
   "download-docs")
-    echo "--- Starting Document Download and Archiving Process ---"
-    # Navigate to the downloader directory and execute its script, passing along any flags like --no-cache
+    echo "--- Starting Document Download Process ---"
     (cd doc_downloader && ./download_all_docs.sh "$@")
     echo "--- Document Download Finished ---"
     ;;
 
+  "extract-images")
+    echo "--- Running Image Extraction ---"
+    python3 extract_images.py
+    ;;
+
+  "build-slides")
+    echo "--- Running Slide Generation from JSON ---"
+    python3 build_slides_from_json.py
+    ;;
+
   *)
-    echo "Usage: $0 [generate-prompt|download-docs]"
-    echo "  generate-prompt: Runs the script to build the prompt file (generated-prompt.md)."
-    echo "  download-docs  : Runs the script to download source PDFs from the config."
-    echo "                   (accepts flags like --no-cache)"
+    echo "Usage: $0 [generate-prompt|download-docs|extract-images|build-slides]"
+    echo "  generate-prompt: Builds the prompt file (generated-prompt.md)."
+    echo "  download-docs  : Downloads source PDFs from the config (accepts --no-cache)."
+    echo "  extract-images : Extracts image references from the generated JSON file."
+    echo "  build-slides   : Builds the Google Slides presentation from the JSON file."
     exit 1
     ;;
 esac
+
+echo "--- Process Finished ---"

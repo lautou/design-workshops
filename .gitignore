@@ -4,7 +4,7 @@
 *.log
 credentials.json
 extracted_images/*
-generated-prompt.md
+generated_prompts/*
 json_source/*
 source_documents/*
 token.json

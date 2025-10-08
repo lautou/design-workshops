@@ -14,28 +14,35 @@ COMMAND=$1
 shift # Remove the command from the arguments list
 
 case "$COMMAND" in
-  "generate-prompt")
-    echo "--- Starting Prompt Generation ---"
-    python3 generate_prompt.py
-    echo "--- Prompt Generation Finished ---"
+  "build-slides")
+    echo "--- Running Slide Generation from JSON ---"
+    python3 build_slides_from_json.py
     ;;
 
   "download-docs")
-    echo "--- Starting Document Download Process ---"
-    (cd doc_downloader && ./download_all_docs.sh "$@")
-    echo "--- Document Download Finished ---"
-    ;;
+  echo "===================================================================="
+  echo "INFO: Downloading all documentation from config..."
+  echo "===================================================================="
+  ./doc_downloader/download_all_docs.sh "$@"
+  ;;
 
   "extract-images")
     echo "--- Running Image Extraction ---"
     python3 extract_images.py
     ;;
 
-  "build-slides")
-    echo "--- Running Slide Generation from JSON ---"
-    python3 build_slides_from_json.py
+  "generate-prompt")
+    echo "--- Starting Prompt Generation ---"
+    python3 generate_prompt.py
+    echo "--- Prompt Generation Finished ---"
     ;;
 
+  "prepare-kb")
+    echo "===================================================================="
+    echo "INFO: Preparing Knowledge Base by converting all PDFs to Markdown..."
+    echo "===================================================================="
+    python3 prepare_kb.py
+    ;;
   *)
     echo "Usage: $0 [generate-prompt|download-docs|extract-images|build-slides]"
     echo "  generate-prompt: Builds the prompt file (generated-prompt.md)."

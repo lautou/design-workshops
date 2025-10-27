@@ -37,6 +37,13 @@ case "$COMMAND" in
     echo "--- Prompt Generation Finished ---"
     ;;
 
+  "map-kb")
+    echo "===================================================================="
+    echo "INFO: Mapping Knowledge Base to workshops.yaml..."
+    echo "===================================================================="
+    python3 map_kb.py
+    ;;
+
   "prepare-kb")
     echo "===================================================================="
     echo "INFO: Preparing Knowledge Base by converting all PDFs to Markdown..."

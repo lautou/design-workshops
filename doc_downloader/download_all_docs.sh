@@ -15,7 +15,7 @@ set -e # Exit immediately if a command exits with a non-zero status.
 
 # --- Configuration ---
 CONFIG_FILE="doc_downloader/download_config.yaml"
-DEST_DIR="source_documents/pdf"
+DEST_DIR="docs"
 LOG_FILE="pipeline.log"
 CACHE_MODE="true"
 CLEANUP_ENABLED="false"

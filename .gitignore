@@ -3,8 +3,9 @@
 .venv
 *.log
 credentials.json
+docs/*
 extracted_images/*
-generated_prompts/*
 json_source/*
-source_documents/*
+sow/*
 token.json
+workshops/*

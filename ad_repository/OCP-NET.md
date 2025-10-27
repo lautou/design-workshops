@@ -1,108 +1,33 @@
-# OpenShift Container Platform networking
+# OpenShift Container Platform Networking
 
-## OCP-NET-01: Outbound Firewall Policy
+## OCP-NET-01: Machine IP Range
 
 **Architectural Question**
-How will egress traffic from the cluster be managed by external firewalls?
+Which IP address range will be used for the cluster nodes (control plane, compute machines)?
 
 **Issue or Problem**
-Corporate security policies often require outbound connections to be restricted. This impacts cluster functionality, updates, and access to external services.
+The machine network CIDR defines the node IP range. This range must be routable within the organization's network for administrative access and communication with infrastructure services (DNS, NTP).
 
 **Assumption**
 N/A
 
 **Alternatives**
 
-- Firewall with Required Rules
-- No Firewall
+- Default Machine Network CIDR (Platform Specific, e.g., 10.0.0.0/16 for IPI)
+- Custom Machine Network CIDR
 
 **Decision**
 #TODO: Document the decision for each cluster.#
 
 **Justification**
 
-- **Firewall with Required Rules:** To meet strict corporate security requirements by ensuring only necessary ports and protocols are open to approved external destinations (e.g., Red Hat registries).
-- **No Firewall:** To simplify setup and provide unrestricted outbound access to all external resources.
+- **Default Machine Network CIDR:** Use platform defaults (e.g., `10.0.0.0/16` for IPI on some platforms) when available and suitable.
+- **Custom Machine Network CIDR:** Specify a custom range to align with existing network segmentation and IP plans. Required for UPI and most enterprise environments.
 
 **Implications**
 
-- **Firewall with Required Rules:** Requires close collaboration with the network security team to implement and maintain the necessary rules. The list of required sites must be kept up-to-date.
-- **No Firewall:** Provides unrestricted outbound access, which simplifies setup but may violate corporate security policies.
-
-**Agreeing Parties**
-
-- Person: #TODO#, Role: Enterprise Architect
-- Person: #TODO#, Role: Security Expert
-- Person: #TODO#, Role: Network Expert
-
----
-
-## OCP-NET-02: Firewall configuration
-
-**Architectural Question**
-How will the firewall be configured for the cluster's outbound internet access?
-
-**Issue or Problem**
-In a connected environment, the cluster requires access to specific external sites for installation, subscription management, and telemetry. The firewall must be configured to allow this traffic without exposing the cluster to unnecessary security risks.
-
-**Assumption**
-N/A
-
-**Alternatives**
-
-- Open Firewall Policy
-- Restricted Firewall Policy (Whitelisting required sites)
-
-**Decision**
-#TODO: Document the decision for each cluster.#
-
-**Justification**
-
-- **Open Firewall Policy:** To simplify operations, allowing the cluster broad access to external resources. This is suitable if network security is managed primarily at the proxy level or higher layer firewalls.
-- **Restricted Firewall Policy (Whitelisting required sites):** To enforce the principle of least privilege, allowing communication only with documented Red Hat endpoints and required third-party services. This is essential for highly secured or regulated environments.
-
-**Implications**
-
-- **Open Firewall Policy:** Increases the security surface area of the cluster.
-- **Restricted Firewall Policy (Whitelisting required sites):** Requires rigorous maintenance to track and update the necessary list of external FQDNs and IP ranges for OpenShift updates and telemetry endpoints. Changes in cloud provider IPs or Red Hat services require immediate firewall rule updates.
-
-**Agreeing Parties**
-
-- Person: #TODO#, Role: Enterprise Architect
-- Person: #TODO#, Role: OCP Platform Owner
-- Person: #TODO#, Role: Security Expert
-- Person: #TODO#, Role: Network Expert
-
----
-
-## OCP-NET-03: Pod Network CIDR Selection
-
-**Architectural Question**
-Will the default internal Pod network addressing be used, or will a custom range be specified?
-
-**Issue or Problem**
-The Pod network CIDR must not overlap with any existing network reachable from the cluster, otherwise Pod-to-external communication will fail.
-
-**Assumption**
-N/A
-
-**Alternatives**
-
-- Default Pod Network CIDR
-- Custom Pod Network CIDR
-
-**Decision**
-#TODO: Document the decision for each cluster.#
-
-**Justification**
-
-- **Default Pod Network CIDR:** Use the out-of-the-box 10.128.0.0/14 range for simplicity when it is confirmed not to overlap with any existing networks.
-- **Custom Pod Network CIDR:** Specify a custom range when the default range is already in use within the network. This ensures that Pod traffic can be correctly routed to and from external services.
-
-**Implications**
-
-- **Default Pod Network CIDR:** Simplifies installation but may require confirmation across the entire enterprise network structure to prevent routing conflicts.
-- **Custom Pod Network CIDR:** Requires careful pre-planning and communication with network administrators to select an appropriate, unused IP range.
+- **Default:** Only applicable for certain IPI installs. Using without validation risks IP conflicts.
+- **Custom:** Requires a pre-allocated, routable subnet from the network team. Network must allow access to/from this range for necessary infrastructure services.
 
 **Agreeing Parties**
 
@@ -112,16 +37,16 @@ N/A
 
 ---
 
-## OCP-NET-04: Node IP Address Management
+## OCP-NET-02: Node IP Address Management
 
 **Architectural Question**
-How will the cluster nodes (Control Plane and Compute) obtain their IP addresses?
+How will the cluster nodes (Control Plane and Compute) obtain their IP addresses from the Machine IP Range?
 
 **Issue or Problem**
-IP Address Management (IPAM) affects the predictability of node addresses, which is critical for infrastructure setup, security policy adherence, and installation method compatibility.
+IP Address Management (IPAM) affects node address predictability, critical for setup, security policies, and installation method compatibility.
 
 **Assumption**
-N/A
+Machine IP Range (OCP-NET-01) is defined.
 
 **Alternatives**
 
@@ -133,13 +58,13 @@ N/A
 
 **Justification**
 
-- **DHCP:** To simplify node provisioning by automatically assigning IP addresses, which reduces manual configuration effort across all installation methods.
-- **Static IP Configuration:** To ensure that nodes have persistent, predictable IP addresses, which is a common requirement for enterprise network and security policies, especially in production environments.
+- **DHCP:** Simplifies node provisioning by automatically assigning IPs. Reduces manual configuration.
+- **Static IP Configuration:** Ensures persistent, predictable node IPs, often required by enterprise network/security policies, especially in production.
 
 **Implications**
 
-- **DHCP:** Requires a highly available DHCP server with properly configured reservations to ensure nodes retain their IPs. It simplifies adding or replacing nodes.
-- **Static IP Configuration:** Increases the manual configuration effort during and after installation (e.g., when scaling the cluster). It requires a robust IP Address Management (IPAM) process to avoid conflicts.
+- **DHCP:** Requires a highly available DHCP server, ideally with reservations. Simplifies node scaling/replacement.
+- **Static IP Configuration:** Increases manual configuration effort during install and scaling. Requires a robust external IPAM process to avoid conflicts.
 
 **Agreeing Parties**
 
@@ -149,20 +74,57 @@ N/A
 
 ---
 
-## OCP-NET-05: Service SDN IP Range
+## OCP-NET-03: Pod Network CIDR Selection
 
 **Architectural Question**
-Which IP address range will be used for the Service network?
+Which internal IP address range will be used for Pod networking?
 
 **Issue or Problem**
-A dedicated, non-overlapping IP range must be allocated for the Service network. If this range conflicts with any existing network CIDRs, cluster services will be unreachable.
+The Pod network CIDR provides IPs for pods within the cluster's SDN. It must not overlap with any existing network reachable from the cluster (including Machine and Service networks) to avoid routing failures.
 
 **Assumption**
 N/A
 
 **Alternatives**
 
-- Default Service Network CIDR
+- Default Pod Network CIDR (e.g., 10.128.0.0/14)
+- Custom Pod Network CIDR
+
+**Decision**
+#TODO: Document the decision for each cluster.#
+
+**Justification**
+
+- **Default Pod Network CIDR:** Use defaults for simplicity when confirmed not to overlap.
+- **Custom Pod Network CIDR:** Specify a custom range when the default overlaps with existing networks, ensuring correct pod routing to/from external services.
+
+**Implications**
+
+- **Default:** Simplifies installation but requires enterprise-wide network validation to prevent conflicts.
+- **Custom:** Requires pre-planning and coordination with network admins to select an appropriate unused IP range.
+
+**Agreeing Parties**
+
+- Person: #TODO#, Role: Enterprise Architect
+- Person: #TODO#, Role: OCP Platform Owner
+- Person: #TODO#, Role: Network Expert
+
+---
+
+## OCP-NET-04: Service Network CIDR Selection
+
+**Architectural Question**
+Which IP address range will be used for the Cluster Service network?
+
+**Issue or Problem**
+A dedicated, non-overlapping IP range is needed for ClusterIP Services. Conflicts with existing networks will make cluster services unreachable.
+
+**Assumption**
+N/A
+
+**Alternatives**
+
+- Default Service Network CIDR (e.g., 172.30.0.0/16)
 - Custom Service Network CIDR
 
 **Decision**
@@ -170,13 +132,13 @@ N/A
 
 **Justification**
 
-- **Default Service Network CIDR:** Use the out-of-the-box `172.30.0.0/16` range for simplicity when it is confirmed not to overlap with any existing networks.
-- **Custom Service Network CIDR:** Specify a custom range when the default range is already in use. This prevents routing conflicts and ensures services within the cluster can communicate with external networks.
+- **Default Service Network CIDR:** Use defaults for simplicity when confirmed not to overlap.
+- **Custom Service Network CIDR:** Specify a custom range when the default overlaps, preventing routing conflicts and ensuring service reachability.
 
 **Implications**
 
-- **Default Service Network CIDR:** Simplifies installation. A failure to verify that this range is free will lead to network connectivity issues for services.
-- **Custom Service Network CIDR:** Requires coordination with the network team to select and reserve a suitable IP range. This range must be provided during the installation configuration.
+- **Default:** Simplifies installation. Failure to verify non-overlap leads to service connectivity issues.
+- **Custom:** Requires coordination with the network team to select and reserve a suitable IP range provided during installation.
 
 **Agreeing Parties**
 
@@ -186,34 +148,148 @@ N/A
 
 ---
 
-## OCP-NET-06: Machine IP Range
+## OCP-NET-05: CNI Plugin Selection (Platform Specific)
 
 **Architectural Question**
-Which IP address range will be used for the cluster nodes (machines)?
+Which Container Network Interface (CNI) plugin will manage Pod networking?
 
 **Issue or Problem**
-The machine network CIDR defines the IP range from which cluster nodes are allocated their addresses. This range must be routable within the organization's network to allow administrative access and communication with infrastructure services (DNS, NTP, etc.).
+The CNI plugin choice impacts network features, performance, and integration with the underlying infrastructure (especially relevant for OpenStack).
 
 **Assumption**
-N/A
+Cluster platform (OCP-BASE-03) is known. For OpenStack, Neutron and Octavia are available.
 
 **Alternatives**
 
-- Default Machine Network CIDR
-- Custom Machine Network CIDR
+- **Default:** OVN-Kubernetes CNI (Platform Agnostic)
+- **OpenStack Specific:** Kuryr-Kubernetes CNI
 
 **Decision**
 #TODO: Document the decision for each cluster.#
 
 **Justification**
 
-- **Default Machine Network CIDR:** Use the out-of-the-box `10.0.0.0/16` range (for IPI on some platforms) when it is available and suitable for the network topology.
-- **Custom Machine Network CIDR:** Specify a custom range to align with the existing network segmentation and IP addressing plan. This is required for UPI installations and most enterprise environments.
+- **OVN-Kubernetes CNI:** Standard, platform-agnostic OCP networking stack. Creates a virtual overlay network independent of underlying infrastructure. Generally recommended for simplicity and consistency.
+- **Kuryr-Kubernetes CNI (OpenStack Only):** Achieves higher network performance on OpenStack by eliminating "double overlay". Creates Neutron ports for pods and uses Octavia LBs for services. Makes pods first-class OpenStack network citizens.
 
 **Implications**
 
-- **Default Machine Network CIDR:** Only applicable for certain IPI installations. Using this without validation can lead to IP conflicts and prevent nodes from joining the cluster.
-- **Custom Machine Network CIDR:** Requires a pre-allocated, routable subnet from the network team. The network must be configured to allow access to and from this range for all necessary infrastructure services.
+- **OVN-Kubernetes:** Simplest, standard, universally supported. Performance usually sufficient. Traffic traverses OCP SDN overlay.
+- **Kuryr (OpenStack Only):** Significant performance benefits, simplified network tracing (pod IPs visible on OSP network). Consumes Neutron ports rapidly, risking quota exhaustion. More complex configuration, specialized CNI.
+
+**Agreeing Parties**
+
+- Person: #TODO#, Role: Enterprise Architect
+- Person: #TODO#, Role: OCP Platform Owner
+- Person: #TODO#, Role: Network Expert
+- Person: #TODO#, Role: Infra Leader (Especially for OpenStack decision)
+
+---
+
+## OCP-NET-06: Outbound Connectivity (External Firewall/Proxy)
+
+**Architectural Question**
+How will cluster egress traffic destined for external networks (e.g., Internet, other corporate networks) be managed by external firewalls and/or proxies?
+
+**Issue or Problem**
+Corporate security requires controlling outbound connections. This impacts cluster installation, updates, OperatorHub access, workload external service access, and requires coordination with network security teams.
+
+**Assumption**
+Cluster Network Connectivity Model (OCP-BASE-07) is decided (Connected/Disconnected).
+
+**Alternatives**
+
+- Direct Outbound (Potentially behind Firewall Rules)
+- Via HTTP/S Proxy Server
+
+**Decision**
+#TODO: Document the decision for each cluster.#
+
+**Justification**
+
+- **Direct Outbound:** Simplifies cluster configuration if external firewalls allow required traffic (potentially restricted by rules per OCP-NET-07).
+- **Via HTTP/S Proxy:** Necessary when direct outbound access is blocked. Centralizes egress control and filtering at the proxy server, aligning with common enterprise security patterns.
+
+**Implications**
+
+- **Direct Outbound:** Requires firewall rules allowing access to Red Hat registries, telemetry, cloud APIs (if applicable), and any external services needed by workloads. Firewall rule management (OCP-NET-07) is critical.
+- **Via Proxy:** Requires configuring OpenShift cluster-wide proxy settings during installation (for core components) and potentially per-workload proxy settings. Cluster functionality depends on proxy availability and correct configuration (including trusting proxy CA).
+
+**Agreeing Parties**
+
+- Person: #TODO#, Role: Enterprise Architect
+- Person: #TODO#, Role: Security Expert
+- Person: #TODO#, Role: Network Expert
+- Person: #TODO#, Role: OCP Platform Owner
+
+---
+
+## OCP-NET-07: External Firewall Rule Granularity (Connected Environments)
+
+**Architectural Question**
+If using direct outbound connectivity (behind firewalls) in a connected environment, how granular will the firewall rules be?
+
+**Issue or Problem**
+Firewall rules for direct outbound access must balance security (least privilege) with operational feasibility (allowing necessary Red Hat and workload traffic).
+
+**Assumption**
+Cluster is Connected (OCP-BASE-07) and uses Direct Outbound (OCP-NET-06).
+
+**Alternatives**
+
+- Open/Broad Firewall Policy
+- Restricted Firewall Policy (Whitelisting specific FQDNs/IPs)
+
+**Decision**
+#TODO: Document the decision for each cluster.#
+
+**Justification**
+
+- **Open/Broad Policy:** Simplifies operations, allowing broad cluster access to external resources (e.g., allow all HTTPS outbound). Assumes security is managed elsewhere (e.g., higher-level firewalls).
+- **Restricted Policy:** Enforces least privilege, allowing communication only with documented Red Hat endpoints and required third-party services. Essential for high-security environments.
+
+**Implications**
+
+- **Open Policy:** Increases cluster security surface area. Simpler firewall management.
+- **Restricted Policy:** Requires rigorous maintenance to track/update necessary external FQDNs/IPs for OCP updates, telemetry, OperatorHub, cloud APIs, etc. Changes by Red Hat or providers require immediate firewall updates.
+
+**Agreeing Parties**
+
+- Person: #TODO#, Role: Enterprise Architect
+- Person: #TODO#, Role: OCP Platform Owner
+- Person: #TODO#, Role: Security Expert
+- Person: #TODO#, Role: Network Expert
+
+---
+
+## OCP-NET-08: DNS Forwarding Configuration
+
+**Architectural Question**
+How will the cluster's internal DNS resolve external hostnames?
+
+**Issue or Problem**
+Cluster-internal DNS (CoreDNS) forwards requests for external domains to upstream resolvers. This behavior might need overriding to use specific enterprise DNS servers.
+
+**Assumption**
+N/A
+
+**Alternatives**
+
+- Default DNS Forwarding (Use Node's Upstream Resolvers)
+- Override DNS Forwarding (Specify Upstream Corporate DNS Servers)
+
+**Decision**
+#TODO: Document the decision for each cluster.#
+
+**Justification**
+
+- **Default Forwarding:** Standard behavior, sufficient if node-level DNS resolvers (from DHCP or static config) correctly reach all required internal/external domains.
+- **Override Forwarding:** Explicitly directs cluster DNS queries to specific corporate DNS servers. Necessary when node resolvers are unsuitable or fine-grained control is required (e.g., split DNS).
+
+**Implications**
+
+- **Default:** Relies on correct underlying infrastructure network config (DHCP options, node setup).
+- **Override:** Cluster external name resolution depends on availability/correctness of specified upstream DNS servers. Managed via `dns.operator.openshift.io` CR.
 
 **Agreeing Parties**
 
@@ -223,114 +299,75 @@ N/A
 
 ---
 
-## OCP-NET-07: Load Balancer
+## OCP-NET-09: Load Balancer Strategy (API & Ingress)
 
 **Architectural Question**
-Which load balancer solution will be used for exposing cluster services and ingress traffic?
+Which load balancer solution will expose the OpenShift API and application ingress traffic?
 
 **Issue or Problem**
-A choice must be made between using the default, platform-provided load balancer or integrating an existing, user-managed load balancer. This choice affects cost, performance, feature set, and operational responsibility.
+A load balancer is needed for external access to the cluster API and applications. Choice impacts cost, performance, features, automation, and operational responsibility.
 
 **Assumption**
-N/A
+External access to API and applications is required.
 
 **Alternatives**
 
-- Default Platform Load Balancer
-- User-Managed Load Balancer
+- Default Platform Load Balancer (Cloud Provider LBaaS / On-Prem Keepalived/HAProxy)
+- User-Managed Load Balancer (e.g., F5, NetScaler, external HAProxy)
 
 **Decision**
 #TODO: Document the decision for each cluster.#
 
 **Justification**
 
-- **Default Platform Load Balancer:** To leverage the tightly integrated, automatically configured load balancer. For cloud platforms, this is the provider's native service. For on-premises, this is often a software-based solution (HAProxy/Keepalived).
-- **User-Managed Load Balancer:** To utilize an existing enterprise-standard load balancer (e.g., F5, NetScaler) that offers advanced features, meets specific security requirements, and aligns with current operational workflows.
+- **Default Platform Load Balancer:** Leverages tightly integrated, automatically configured LB (cloud native service or built-in on-prem solution). Simplest approach, especially with IPI.
+- **User-Managed Load Balancer:** Utilizes existing enterprise-standard LB offering advanced features, specific security compliance, and aligning with current operational workflows. Required for UPI.
 
 **Implications**
 
-- **Default Platform Load Balancer:** Functionality is limited to what the platform's default load balancer offers. Configuration is managed automatically by OpenShift, which can be simpler but less flexible.
-- **User-Managed Load Balancer:** Requires manual configuration and integration. The operations team retains full control and responsibility for the load balancer's lifecycle, but it adds operational overhead.
+- **Default:** Functionality limited by the platform's default LB. Configuration managed automatically by OCP (simpler but less flexible). Cost typically included or based on cloud usage.
+- **User-Managed:** Requires manual configuration and integration for API and Ingress Operator Services. Operations team retains full control and responsibility (lifecycle, HA, features). Adds operational overhead but allows advanced customization.
 
 **Agreeing Parties**
 
 - Person: #TODO#, Role: Enterprise Architect
 - Person: #TODO#, Role: OCP Platform Owner
 - Person: #TODO#, Role: Network Expert
+- Person: #TODO#, Role: Infra Leader
 
 ---
 
-## OCP-NET-08: Default Network Policy
+## OCP-NET-10: Ingress Controller Strategy
 
 **Architectural Question**
-What will be the default cross-namespace network policy implementation strategy?
+How will ingress controllers be deployed and managed for routing external traffic to applications?
 
 **Issue or Problem**
-The default network policy configuration establishes the security posture regarding inter-project communication and blast radius containment.
+Strategy impacts multi-tenancy, performance isolation, security, custom domain usage, and resource consumption.
 
 **Assumption**
-N/A
+Applications need to be exposed externally.
 
 **Alternatives**
 
-- Default Open (No Policies)
-- Allow Same-Namespace by Default
-- Default Deny (Zero Trust)
+- Default OpenShift Ingress Controller (Shared)
+- Dedicated OpenShift Ingress Controllers (Per Tenant/App Group)
+- Third-Party Ingress Controller (e.g., Nginx Ingress Operator)
 
 **Decision**
 #TODO: Document the decision for each cluster.#
 
 **Justification**
 
-- **Default Open (No Policies):** To maximize ease of deployment and debugging by allowing all pods to communicate across namespaces freely by default.
-- **Allow Same-Namespace by Default:** To improve security by isolating projects from each other, requiring developers to explicitly define policies for cross-project traffic.
-- **Default Deny (Zero Trust):** To provide the strongest security posture by mandating that developers define explicit allow policies for all required internal and external traffic.
+- **Default:** Simplest, uses out-of-the-box controller for all routes under the default apps domain (`*.apps.cluster.domain`).
+- **Dedicated:** Creates separate controllers for different apps/tenants using `IngressController` CR. Allows custom domains, performance/security isolation.
+- **Third-Party:** Integrates vendor-specific controller for advanced features or existing expertise.
 
 **Implications**
 
-- **Default Open (No Policies):** Offers no network segmentation between projects, increasing the security risk and blast radius of a compromised pod.
-- **Allow Same-Namespace by Default:** Improves security by isolating projects from each other. Requires developers to create network policies for any required cross-project communication.
-- **Default Deny (Zero Trust):** Provides the strongest security posture but requires significant effort from development teams to define and maintain detailed network policies for their applications to function correctly.
-
-**Agreeing Parties**
-
-- Person: #TODO#, Role: Enterprise Architect
-- Person: #TODO#, Role: Network Expert
-- Person: #TODO#, Role: OCP Platform Owner
-
----
-
-## OCP-NET-09: Ingress Controller
-
-**Architectural Question**
-Which ingress controller solution will be used for application workload ingress traffic?
-
-**Issue or Problem**
-An ingress controller strategy is needed to route external traffic to applications inside the cluster. This decision impacts multi-tenancy, performance isolation, security, and the ability to use custom domain names.
-
-**Assumption**
-N/A
-
-**Alternatives**
-
-- Default OpenShift Ingress Controller
-- Dedicated OpenShift Ingress Controller
-- Third-Party Ingress Controller
-
-**Decision**
-#TODO: Document the decision for each cluster.#
-
-**Justification**
-
-- **Default OpenShift Ingress Controller:** To use the out-of-the-box controller for simplicity. It handles all routes using the default wildcard domain (`*.apps.clustername.domain`).
-- **Dedicated OpenShift Ingress Controller:** To create separate ingress controllers for different applications or tenants. This allows the use of custom domains and provides performance and security isolation.
-- **Third-Party Ingress Controller:** To integrate a vendor-specific ingress controller (e.g., NGINX) to leverage advanced features or existing expertise.
-
-**Implications**
-
-- **Default OpenShift Ingress Controller:** All application routes share the same ingress controller. This can lead to "noisy neighbor" performance issues and limits domain name flexibility.
-- **Dedicated OpenShift Ingress Controller:** Increases cluster resource consumption. It requires additional configuration to create a new controller and to scope routes to it using a custom domain.
-- **Third-Party Ingress Controller:** The organization is responsible for the full lifecycle management of the third-party controller. It provides domain flexibility but requires manual integration.
+- **Default:** All routes share one controller. Risk of "noisy neighbor" performance issues. Limits domain flexibility. Least resource usage.
+- **Dedicated:** Increases cluster resource consumption (CPU, RAM per controller replica). Requires config for new controller and route scoping (custom domains, route labels/selectors). Provides isolation.
+- **Third-Party:** Org responsible for full lifecycle management. Domain flexibility but requires manual integration and potentially different operational model.
 
 **Agreeing Parties**
 
@@ -341,233 +378,243 @@ N/A
 
 ---
 
-## OCP-NET-10: Number of ingress controller replicas
+## OCP-NET-11: Ingress Controller Replica Count
 
 **Architectural Question**
-How many replicas of each ingress controller will be deployed?
+How many replicas will be deployed for each ingress controller instance (default and dedicated)?
 
 **Issue or Problem**
-The number of ingress controller replicas determines its high availability and capacity to handle traffic. An insufficient number of replicas can lead to performance bottlenecks or outages.
+Replica count determines HA and traffic handling capacity. Insufficient replicas cause bottlenecks or outages.
 
 **Assumption**
-N/A
+Ingress Controller strategy (OCP-NET-10) is decided.
 
 **Alternatives**
 
-- Default Replica Count (2)
-- Custom Replica Count
+- Default Replica Count (Typically 2)
+- Custom Replica Count (Scaled based on load/HA needs)
 
 **Decision**
 #TODO: Document the decision for each cluster and each ingress controller pool.#
 
 **Justification**
 
-- **Default Replica Count (2):** To use the out-of-the-box configuration, which provides a baseline level of high availability suitable for non-production or low-traffic environments.
-- **Custom Replica Count:** To scale the number of replicas up (or down) to match the expected traffic load and meet specific high-availability requirements for production workloads.
+- **Default (2):** Baseline HA, suitable for non-prod or low traffic.
+- **Custom:** Scale replicas up (or down) to match expected load and meet specific HA requirements (e.g., survive node/AZ failure) for production.
 
 **Implications**
 
-- **Default Replica Count (2):** Provides basic redundancy. May not be sufficient to handle high traffic volumes or to survive a multi-node failure without performance degradation.
-- **Custom Replica Count:** Allows the ingress tier to be scaled to handle production traffic loads, including bursty traffic from model inference requests. Each replica consumes additional CPU and memory resources.
+- **Default (2):** Basic redundancy. May not handle high volume or survive multi-node/AZ failure without degradation.
+- **Custom:** Allows scaling for production loads (including bursty AI inference traffic). Each replica consumes additional CPU/memory. Requires monitoring to determine appropriate count.
 
 **Agreeing Parties**
 
 - Person: #TODO#, Role: Enterprise Architect
 - Person: #TODO#, Role: OCP Platform Owner
 - Person: #TODO#, Role: AI/ML Platform Owner
+- Person: #TODO#, Role: Operations Expert
 
 ---
 
-## OCP-NET-11: SSL/TLS Termination
+## OCP-NET-12: SSL/TLS Termination Strategy
 
 **Architectural Question**
-Where will SSL/TLS termination for application traffic occur?
+Where will SSL/TLS encryption for application ingress traffic be terminated?
 
 **Issue or Problem**
-A decision must be made where to terminate encrypted traffic. This choice impacts security posture, certificate management complexity, and the ability to enforce end-to-end encryption.
+Decision impacts security posture, certificate management complexity, and ability to enforce end-to-end encryption.
 
 **Assumption**
-N/A
+Application traffic requires HTTPS.
 
 **Alternatives**
 
-- Edge Termination
-- Passthrough Termination
-- Re-encryption Termination
+- **Edge Termination:** TLS terminates at Ingress Controller; traffic to Pod is HTTP.
+- **Passthrough Termination:** TLS terminates at the Pod; Ingress Controller routes encrypted TCP.
+- **Re-encryption Termination:** TLS terminates at Ingress Controller, which then initiates a new TLS connection to the Pod.
 
 **Decision**
 #TODO: Document the decision for each cluster.#
 
 **Justification**
 
-- **Edge Termination:** To simplify certificate management by centralizing it at the ingress controller. This offloads TLS processing from application pods.
-- **Passthrough Termination:** To achieve true end-to-end encryption from the client to the application pod, which is often a requirement for high-security workloads.
-- **Re-encryption Termination:** To ensure traffic is encrypted both externally and internally within the cluster. The ingress controller terminates the external TLS session and establishes a new one to the application pod.
+- **Edge:** Simplifies certificate management (centralized at Ingress). Offloads TLS processing from pods.
+- **Passthrough:** Achieves true end-to-end encryption (client to pod). Often required for high security/compliance.
+- **Re-encryption:** Ensures traffic is encrypted both externally and internally within the cluster. Balances security and L7 routing capability.
 
 **Implications**
 
-- **Edge Termination:** Traffic between the ingress controller and the application pod is unencrypted. This may not be acceptable for all security policies.
-- **Passthrough Termination:** The ingress controller cannot inspect L7 traffic, so features like path-based routing or header manipulation are not possible. Certificate management is decentralized to application teams.
-- **Re-encryption Termination:** Adds a minor performance overhead due to double encryption. It requires certificate management for both the ingress controller and the application pods.
+- **Edge:** Traffic between Ingress and Pod is unencrypted. May violate security policies. Allows L7 inspection/routing at Ingress.
+- **Passthrough:** Ingress cannot inspect L7 traffic (no path-based routing, header manipulation). Certificate management decentralized to app teams.
+- **Re-encryption:** Minor performance overhead (double encryption). Requires certificate management at both Ingress and Pods. Allows L7 inspection/routing.
 
 **Agreeing Parties**
 
 - Person: #TODO#, Role: Enterprise Architect
 - Person: #TODO#, Role: Security Expert
 - Person: #TODO#, Role: AI/ML Platform Owner
+- Person: #TODO#, Role: OCP Platform Owner
 
 ---
 
-## OCP-NET-12: DNS Forwarding
+## OCP-NET-13: Default Network Policy (Pod Isolation)
 
 **Architectural Question**
-How will the cluster's internal DNS resolve external hostnames?
+What default network policy will govern pod communication _within_ and _between_ namespaces?
 
 **Issue or Problem**
-By default, the in-cluster DNS resolver forwards requests it cannot resolve locally to the upstream DNS servers configured on the nodes. This behavior may need to be overridden to integrate with specific enterprise DNS servers.
+Default policy sets the baseline security posture for pod network isolation, impacting security risk and developer workflow (need to create explicit allow rules).
 
 **Assumption**
-N/A
+Network segmentation between projects/pods is desired or required.
 
 **Alternatives**
 
-- Default DNS Forwarding
-- Override DNS Forwarding
+- **Default Open:** All pods can communicate freely across all namespaces.
+- **Allow Same-Namespace:** Pods within a namespace can communicate freely; cross-namespace traffic is denied by default.
+- **Default Deny (Zero Trust):** All traffic (within and between namespaces) is denied by default.
 
 **Decision**
 #TODO: Document the decision for each cluster.#
 
 **Justification**
 
-- **Default DNS Forwarding:** To use the standard behavior, which is sufficient for environments where the node-level DNS resolvers are correctly configured to reach all necessary internal and external domains.
-- **Override DNS Forwarding:** To explicitly direct the cluster's DNS queries to specific corporate DNS servers. This is necessary when the node-level resolvers are not suitable or when fine-grained control over name resolution is required.
+- **Default Open:** Maximizes ease of deployment/debugging initially. Lowest security.
+- **Allow Same-Namespace:** Improves security by isolating projects. Requires explicit `NetworkPolicy` for cross-namespace communication. Good balance for many orgs.
+- **Default Deny:** Strongest security (Zero Trust). Requires developers to define explicit allow policies for _all_ required traffic (in-namespace and cross-namespace).
 
 **Implications**
 
-- **Default DNS Forwarding:** Relies on the correctness of the underlying infrastructure's network configuration (e.g., DHCP options).
-- **Override DNS Forwarding:** The cluster's ability to resolve external names becomes dependent on the availability and correctness of the specified upstream DNS servers. This configuration is managed via the `dns.operator.openshift.io` custom resource.
+- **Default Open:** No network segmentation. Increases blast radius of compromised pod.
+- **Allow Same-Namespace:** Isolates projects. Developers must create policies for intended cross-project traffic.
+- **Default Deny:** Strongest security. Significant effort for developers to define/maintain detailed `NetworkPolicy` objects for applications to function.
 
 **Agreeing Parties**
 
 - Person: #TODO#, Role: Enterprise Architect
-- Person: #TODO#, Role: OCP Platform Owner
 - Person: #TODO#, Role: Network Expert
+- Person: #TODO#, Role: OCP Platform Owner
+- Person: #TODO#, Role: Security Expert
 
 ---
 
-## OCP-NET-13: Egress IP addresses
+## OCP-NET-14: Administrative Network Policy Strategy (Cluster-wide)
 
 **Architectural Question**
-How will outbound traffic from pods be routed to external services that require a fixed source IP?
+Will cluster-scoped administrative network policies (`AdminNetworkPolicy`/`BaselineAdminNetworkPolicy`) enforce baseline security rules above tenant-controlled `NetworkPolicy`?
 
 **Issue or Problem**
-Some external services (e.g., databases, legacy APIs) use firewall rules that allow access only from specific, whitelisted source IP addresses. By default, outbound traffic from a pod can originate from any node in the cluster.
+Standard `NetworkPolicy` is namespace-scoped, allowing project owners to potentially bypass critical platform security requirements. A cluster-scoped mechanism enables centralized enforcement.
 
 **Assumption**
-External services require source IP whitelisting for access.
+Cluster uses OVN-Kubernetes CNI (OCP-NET-05). Centralized network policy enforcement is desired.
 
 **Alternatives**
 
-- No Egress IP
-- Egress IP per Project
-- Egress IP for Specific Pods
+- Implement AdminNetworkPolicy (ANP) - Mandatory Rules
+- Implement BaselineAdminNetworkPolicy (BANP) - Default Rules (Overridable)
+- Rely Solely on Standard NetworkPolicy (OCP-NET-13)
 
 **Decision**
 #TODO: Document the decision for each cluster.#
 
 **Justification**
 
-- **No Egress IP:** For environments where fixed source IPs are not required for outbound connections.
-- **Egress IP per Project:** To assign a predictable, static source IP address for all outbound traffic originating from a specific project/namespace. This simplifies firewall management for external services.
-- **Egress IP for Specific Pods:** To provide a dedicated egress IP for a subset of pods within a project, allowing for fine-grained control over traffic routing.
+- **ANP:** Enforces mandatory, non-overridable rules (Allow, Deny, Pass actions) for high-priority traffic (control plane, security boundaries). Highest precedence.
+- **BANP:** Sets default baseline rules (Allow or Deny) that _can_ be overridden by standard `NetworkPolicy`. Provides a starting point for tenants.
+- **Standard Only:** Minimizes complexity, accepting all network rules are managed at namespace level by project owners.
 
 **Implications**
 
-- **No Egress IP:** Pods will egress using the IP of the node they are running on, which is unpredictable.
-- **Egress IP per Project:** Requires reserving a pool of available IP addresses on the node network. The Egress IP must be hosted on a node within the same subnet.
-- **Egress IP for Specific Pods:** Offers more granular control but increases configuration complexity, as pods must be labeled to select the correct egress IP object.
+- **ANP/BANP:** Requires rigorous testing to avoid disrupting core platform functions (monitoring, operators). ANP ensures critical rules cannot be bypassed. BANP provides guidance but allows tenant flexibility. Requires OVN-Kubernetes CNI.
+- **Standard Only:** Compliance or Zero Trust architectures harder to enforce consistently across all projects. Simpler operationally.
+
+**Agreeing Parties**
+
+- Person: #TODO#, Role: Enterprise Architect
+- Person: #TODO#, Role: Security Expert
+- Person: #TODO#, Role: Network Expert
+- Person: #TODO#, Role: OCP Platform Owner
+
+---
+
+## OCP-NET-15: Egress IP Address Strategy
+
+**Architectural Question**
+How will outbound traffic from specific pods/projects ensure a predictable source IP address when connecting to external services requiring IP whitelisting?
+
+**Issue or Problem**
+External services (databases, legacy APIs) often use firewalls allowing access only from specific source IPs. Default pod egress uses the node IP, which is unpredictable.
+
+**Assumption**
+External services require source IP whitelisting.
+
+**Alternatives**
+
+- No Egress IP Configuration
+- Egress IP per Project/Namespace
+- Egress IP for Specific Pods (via selectors)
+
+**Decision**
+#TODO: Document the decision for each cluster.#
+
+**Justification**
+
+- **No Egress IP:** For environments where fixed source IPs aren't needed.
+- **Egress IP per Project:** Assigns a static source IP for all outbound traffic from a project. Simplifies external firewall management.
+- **Egress IP for Specific Pods:** Provides dedicated egress IP for a pod subset (via labels), allowing fine-grained control.
+
+**Implications**
+
+- **No Egress IP:** Pods egress via unpredictable node IPs.
+- **Egress IP per Project:** Requires reserving IPs on the node network. Egress IP must be hosted on a node in the same subnet. Simple for project-wide rules.
+- **Egress IP for Specific Pods:** More granular but increases config complexity (labeling pods, managing multiple EgressIP objects).
 
 **Agreeing Parties**
 
 - Person: #TODO#, Role: Enterprise Architect
 - Person: #TODO#, Role: Network Expert
 - Person: #TODO#, Role: Security Expert
+- Person: #TODO#, Role: OCP Platform Owner
 
 ---
 
-## OCP-NET-14: Secondary networks
+## OCP-NET-16: Secondary Network Strategy (Multus / SR-IOV)
 
 **Architectural Question**
-How will pods connect to additional, specialized networks beyond the primary cluster network?
+How will pods connect to additional, specialized networks (e.g., VLANs, high-performance NICs) beyond the primary cluster network?
 
 **Issue or Problem**
-Certain applications, particularly in Telco, high-performance computing, or those interfacing with legacy systems, require direct access to specific physical or VLAN-based networks.
+Certain apps (Telco, HPC, AI/ML data ingest, legacy systems) require direct access to specific physical, VLAN-based, or high-performance networks.
 
 **Assumption**
-Specific workloads require direct access to specialized (e.g., L2 VLAN) or high-performance (e.g., SR-IOV) networks.
+Specific workloads require specialized network access.
 
 **Alternatives**
 
 - No Secondary Networks
-- Layer 2 CNI Plugin (Macvlan/Ipvlan)
-- SR-IOV Network Device Plugin
+- Layer 2 CNI Plugin (Macvlan/Ipvlan via Multus)
+- SR-IOV Network Device Plugin (via Multus)
 
 **Decision**
 #TODO: Document the decision for each cluster.#
 
 **Justification**
 
-- **No Secondary Networks:** To maintain the simplest network configuration for standard enterprise applications that do not have specialized connectivity requirements.
-- **Layer 2 CNI Plugin (Macvlan/Ipvlan):** To integrate pods directly into existing physical or VLAN networks, allowing them to function as first-class citizens on those networks.
-- **SR-IOV Network Device Plugin:** To provide applications with direct, high-performance access to a physical network interface by bypassing the host's network stack. This is critical for workloads that demand the lowest possible latency and highest throughput.
+- **No Secondary Networks:** Simplest config for standard enterprise apps without specialized connectivity needs.
+- **Layer 2 CNI (Macvlan/Ipvlan):** Integrates pods directly into existing physical/VLAN networks, making them L2 citizens on those networks. Uses Multus CNI meta-plugin.
+- **SR-IOV Plugin:** Provides pods direct, high-performance access to physical NIC VFs (Virtual Functions), bypassing host network stack. Critical for lowest latency/highest throughput (AI/ML ingest, inference, Telco NFV). Uses Multus.
 
 **Implications**
 
-- **No Secondary Networks:** The platform will not be able to host applications with specialized networking requirements.
-- **Layer 2 CNI Plugin (Macvlan/Ipvlan):** Requires careful IP Address Management (IPAM) for the secondary network. The Multus CNI plugin must be used to manage the multiple network attachments for pods.
-- **SR-IOV Network Device Plugin:** This is critical for high-performance data ingest for AI/ML or low-latency inference. It requires worker nodes with specific, SR-IOV capable NICs. Configuration is complex, involving BIOS settings, kernel modules, and the SR-IOV Network Operator.
+- **No Secondary Networks:** Cannot host apps with specialized network requirements.
+- **Layer 2 CNI:** Requires careful IPAM for the secondary network. Multus manages multiple network attachments (`NetworkAttachmentDefinition` CRs).
+- **SR-IOV:** Critical for high-performance AI/ML/Telco. Requires SR-IOV capable NICs on workers. Complex config (BIOS, kernel, SR-IOV Network Operator). Provides near bare-metal network performance to pods.
 
 **Agreeing Parties**
 
 - Person: #TODO#, Role: Enterprise Architect
 - Person: #TODO#, Role: Network Expert
 - Person: #TODO#, Role: OCP Platform Owner
-
----
-
-## OCP-NET-15: Administrative Network Policy Strategy
-
-**Architectural Question**
-Will cluster-scoped administrative network policies (AdminNetworkPolicy/BaselineAdminNetworkPolicy) be used to enforce baseline security rules above tenant controls?
-
-**Issue or Problem**
-Standard Kubernetes `NetworkPolicy` objects are namespace-scoped, meaning project owners can inadvertently or intentionally bypass critical platform network security requirements. A cluster-scoped mechanism is needed for centralized policy enforcement.
-
-**Assumption**
-The cluster uses the OVN-Kubernetes CNI plugin.
-
-**Alternatives**
-
-- Implement AdminNetworkPolicy (ANP)
-- Implement BaselineAdminNetworkPolicy (BANP)
-- Rely solely on standard NetworkPolicy (OCP-NET-08)
-
-**Decision**
-#TODO: Document the decision for each cluster.#
-
-**Justification**
-
-- **Implement AdminNetworkPolicy (ANP):** To enforce mandatory, non-overridable rules (Allow, Deny, Pass actions) for high-priority traffic like control plane communication or security boundaries.
-- **Implement BaselineAdminNetworkPolicy (BANP):** To set optional baseline rules (Allow or Deny actions) that can be overridden by users employing standard `NetworkPolicy` objects if customization is required.
-- **Rely solely on standard NetworkPolicy (OCP-NET-08):** To minimize complexity, accepting that all network rules are managed at the namespace level by project owners.
-
-**Implications**
-
-- **Implement ANP/BANP:** Requires rigorous testing to ensure policies do not disrupt core platform functionality (e.g., monitoring scraping or operator communication).
-- **Rely solely on standard NetworkPolicy (OCP-NET-08):** Compliance or Zero Trust architectures may be difficult to enforce consistently across all projects.
-
-**Agreeing Parties**
-
-- Person: #TODO#, Role: Enterprise Architect
-- Person: #TODO#, Role: Security Expert
-- Person: #TODO#, Role: Network Expert
+- Person: #TODO#, Role: Infra Leader (for SR-IOV hardware)
+- Person: #TODO#, Role: AI/ML Platform Owner (for SR-IOV use case)

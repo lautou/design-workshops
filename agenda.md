@@ -87,13 +87,13 @@
 - **Sub-Topics:**
   - `OCP-STOR-01`: Storage Provider Decision (ODF vs. Native vs. Other)
   - `OCP-OSP-04`: OpenStack Storage Integration (Cinder/Manila CSI - Non-ODF PVs)
-  - `ODF-BASE-03`: ODF Deployment Approach (Internal vs External)
+  - `ODF-BASE-01`: ODF Deployment Approach (Internal vs External)
   - `ODF-OSP-01`: ODF Deployment on OpenStack (Cinder Volume Types)
   - `ODF-OSP-02`: OpenStack Failure Domain and AZ Awareness (for ODF)
   - `ODF-BM-01`: ODF Deployment on Bare Metal (LSO vs LVMS)
   - `ODF-BM-02`: Bare Metal Node and Device Failure Domain Awareness (for ODF)
-  - `ODF-BASE-01`: ODF Storage Class Design
-  - `ODF-BASE-02`: On-Cluster Object Storage (MCG/NooBaa)
+  - `ODF-BASE-02`: ODF Storage Class Design
+  - `ODF-BASE-03`: On-Cluster Object Storage (MCG/NooBaa)
 - **Customer Attendees:**
   - Enterprise Architect
   - Storage Expert

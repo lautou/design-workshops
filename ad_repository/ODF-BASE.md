@@ -1,6 +1,43 @@
 # OpenShift Data Foundation - Base
 
-## ODF-BASE-01: Storage Class Design
+## ODF-BASE-01: ODF Deployment Approach (Internal vs External)
+
+**Architectural Question**
+Will OpenShift Data Foundation (ODF) be deployed internally on existing OpenShift worker nodes, or externally/in a separate cluster?
+
+**Issue or Problem**
+The deployment approach dictates resource sharing, scalability, and operational management boundaries for the storage platform.
+
+**Assumption**
+OpenShift Data Foundation (ODF) will be deployed as the storage solution (see OCP-STOR-01).
+
+**Alternatives**
+
+- Internal Storage Cluster
+- External Storage Cluster
+
+**Decision**
+#TODO: Document the decision for ODF deployment.#
+
+**Justification**
+
+- **Internal Storage Cluster:** To deploy ODF co-located on the same worker nodes as application workloads. This is efficient for smaller clusters and simplifies setup by utilizing OCP resources directly.
+- **External Storage Cluster:** To deploy ODF on dedicated nodes (potentially managed by a separate team or SRE) or leverage a pre-existing external Ceph cluster. This approach is favored when storage requirements are significant (e.g., 600+ storage devices) or when multiple OCP clusters need to consume storage services from a common external cluster.
+
+**Implications**
+
+- **Internal Storage Cluster:** Requires careful node sizing to prevent storage components (Ceph OSDs, Monitors) from impacting application performance (resource contention).
+- **External Storage Cluster:** Provides clearer separation of concerns and resources, but increases network dependencies and requires configuration to integrate OCP storage endpoints with the external cluster.
+
+**Agreeing Parties**
+
+- Person: #TODO#, Role: Enterprise Architect
+- Person: #TODO#, Role: Storage Expert
+- Person: #TODO#, Role: OCP Platform Owner
+
+---
+
+## ODF-BASE-02: Storage Class Design
 
 **Architectural Question**
 What specific `StorageClasses` will be created to expose ODF's capabilities (File, Block, Object) to different types of workloads?
@@ -36,7 +73,7 @@ OpenShift Data Foundation (ODF) will be deployed as the primary storage solution
 
 ---
 
-## ODF-BASE-02: On-Cluster Object Storage
+## ODF-BASE-03: On-Cluster Object Storage
 
 **Architectural Question**
 Will Red Hat OpenShift Data Foundation's Object Storage service be utilized?
@@ -72,40 +109,3 @@ N/A
 - Person: #TODO#, Role: Lead Data Scientist
 - Person: #TODO#, Role: OCP Platform Owner
 - Person: #TODO#, Role: Security Expert
-
----
-
-## ODF-BASE-03: ODF Deployment Approach (Internal vs External)
-
-**Architectural Question**
-Will OpenShift Data Foundation (ODF) be deployed internally on existing OpenShift worker nodes, or externally/in a separate cluster?
-
-**Issue or Problem**
-The deployment approach dictates resource sharing, scalability, and operational management boundaries for the storage platform.
-
-**Assumption**
-OpenShift Data Foundation (ODF) will be deployed as the storage solution (see OCP-STOR-01).
-
-**Alternatives**
-
-- Internal Storage Cluster
-- External Storage Cluster
-
-**Decision**
-#TODO: Document the decision for ODF deployment.#
-
-**Justification**
-
-- **Internal Storage Cluster:** To deploy ODF co-located on the same worker nodes as application workloads. This is efficient for smaller clusters and simplifies setup by utilizing OCP resources directly.
-- **External Storage Cluster:** To deploy ODF on dedicated nodes (potentially managed by a separate team or SRE) or leverage a pre-existing external Ceph cluster. This approach is favored when storage requirements are significant (e.g., 600+ storage devices) or when multiple OCP clusters need to consume storage services from a common external cluster.
-
-**Implications**
-
-- **Internal Storage Cluster:** Requires careful node sizing to prevent storage components (Ceph OSDs, Monitors) from impacting application performance (resource contention).
-- **External Storage Cluster:** Provides clearer separation of concerns and resources, but increases network dependencies and requires configuration to integrate OCP storage endpoints with the external cluster.
-
-**Agreeing Parties**
-
-- Person: #TODO#, Role: Enterprise Architect
-- Person: #TODO#, Role: Storage Expert
-- Person: #TODO#, Role: OCP Platform Owner

@@ -13,21 +13,21 @@ OpenShift Data Foundation (ODF) will be deployed as the storage solution (see OC
 
 **Alternatives**
 
-- Internal Storage Cluster
-- External Storage Cluster
+- Internal Mode
+- External Mode
 
 **Decision**
 #TODO: Document the decision for ODF deployment.#
 
 **Justification**
 
-- **Internal Storage Cluster:** To deploy ODF co-located on the same worker nodes as application workloads. This is efficient for smaller clusters and simplifies setup by utilizing OCP resources directly.
-- **External Storage Cluster:** To deploy ODF on dedicated nodes (potentially managed by a separate team or SRE) or leverage a pre-existing external Ceph cluster. This approach is favored when storage requirements are significant (e.g., 600+ storage devices) or when multiple OCP clusters need to consume storage services from a common external cluster.
+- **Internal Mode:** ODF components (Ceph, NooBaa) run containerized directly on the existing OpenShift worker nodes or dedicated storage nodes within the cluster. This simplifies deployment and management by consolidating resources.
+- **External Mode:** ODF operators manage services exposed by an **external, dedicated Red Hat Ceph Storage cluster**. This is used when integrating OCP with a pre-existing, large-scale Ceph environment.
 
 **Implications**
 
-- **Internal Storage Cluster:** Requires careful node sizing to prevent storage components (Ceph OSDs, Monitors) from impacting application performance (resource contention).
-- **External Storage Cluster:** Provides clearer separation of concerns and resources, but increases network dependencies and requires configuration to integrate OCP storage endpoints with the external cluster.
+- **Internal Mode:** Requires OCP worker nodes to dedicate resources (CPU, RAM, raw disks/volumes) to the storage platform, potentially impacting application performance. Requires ODF subscription and capacity planning on the OCP nodes.
+- **External Mode:** Offloads storage resource contention from the OpenShift cluster, but requires independent management and lifecycle control of the external Ceph cluster.
 
 **Agreeing Parties**
 

@@ -13,7 +13,7 @@ N/A
 
 **Alternatives**
 
-- Default Machine Network CIDR (Platform Specific, e.g., 10.0.0.0/16 for IPI)
+- Default Machine Network CIDR
 - Custom Machine Network CIDR
 
 **Decision**
@@ -21,13 +21,13 @@ N/A
 
 **Justification**
 
-- **Default Machine Network CIDR:** Use platform defaults (e.g., `10.0.0.0/16` for IPI on some platforms) when available and suitable.
-- **Custom Machine Network CIDR:** Specify a custom range to align with existing network segmentation and IP plans. Required for UPI and most enterprise environments.
+- **Default Machine Network CIDR:** Uses the default CIDR suggested by the installation program (Platform Specific, e.g., 10.0.0.0/16 for IPI). This simplifies setup if the range does not conflict with existing networks.
+- **Custom Machine Network CIDR:** Required if the default range conflicts with existing data center networks, or if specific IP address schemes must be followed for compliance or network segmentation purposes.
 
 **Implications**
 
-- **Default:** Only applicable for certain IPI installs. Using without validation risks IP conflicts.
-- **Custom:** Requires a pre-allocated, routable subnet from the network team. Network must allow access to/from this range for necessary infrastructure services.
+- **Default Machine Network CIDR:** Requires verification that this range is unique and non-overlapping within the organizational network.
+- **Custom Machine Network CIDR:** This range must be routable within the organization's existing network infrastructure (firewalls, routers) to ensure control plane and worker nodes can communicate with infrastructure services (DNS, NTP).
 
 **Agreeing Parties**
 

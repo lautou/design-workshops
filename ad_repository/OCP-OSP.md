@@ -21,13 +21,13 @@ N/A
 
 **Justification**
 
-- **User-Provisioned Infrastructure (UPI):** To manually provision all OpenStack resources (VMs, networks, load balancers, security groups) before running the OpenShift installation. This provides maximum control and allows integration into existing, complex network topologies.
-- **Installer-Provisioned Infrastructure (IPI):** To use the fully automated, IPI-based workflow. The installer will use the OpenStack APIs to create and manage all necessary resources, including VMs, networks, and load balancers (Octavia).
+- **User-Provisioned Infrastructure (UPI):** The user manually provisions the necessary OpenStack resources (VMs, networks, load balancers, security groups) before using the installer to deploy OpenShift. Provides maximum customization.
+- **Installer-Provisioned Infrastructure (IPI):** Recommended for maximum integration. The OpenShift installer automatically provisions and manages the cluster infrastructure within OpenStack, leveraging Nova, Neutron, and Cinder APIs.
 
 **Implications**
 
-- **User-Provisioned Infrastructure (UPI):** Places the full burden of infrastructure lifecycle management on the operations team. The Machine API is not available, so node scaling and remediation are manual processes.
-- **Installer-Provisioned Infrastructure (IPI):** This is the most integrated approach, enabling the Machine API for automated node scaling and remediation. It requires an OpenStack user with sufficient permissions to create and manage all cluster resources.
+- **User-Provisioned Infrastructure (UPI):** High administrative overhead for setup and Day 2 scaling. Customization benefits must outweigh ongoing management complexity.
+- **Installer-Provisioned Infrastructure (IPI):** Simplifies installation and uses the Machine API for dynamic scaling and lifecycle management of nodes. Requires comprehensive OpenStack credentials with provisioning permissions.
 
 **Agreeing Parties**
 
@@ -59,7 +59,7 @@ N/A
 **Justification**
 
 - **Single OpenStack Project:** To co-locate the OpenShift cluster resources within an existing, shared OpenStack project. This may be done to share quotas or network resources with other (non-OCP) applications.
-- **Dedicated OpenStack Project per Cluster:** To create a new, dedicated OpenStack project for each OpenShift cluster (e.g., `ocp-prod-project`, `ocp-nonprod-project`). This is the recommended approach for isolation.
+- **Dedicated OpenStack Project per Cluster:** To create a new, dedicated OpenStack project for each OpenShift cluster (e.g., ocp-prod-project, ocp-nonprod-project). This is the recommended approach for isolation.
 
 **Implications**
 

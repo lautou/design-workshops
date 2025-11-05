@@ -1708,28 +1708,31 @@ Model serving (likely KServe, RHOAI-SM-34) is enabled.
 Will backup be implemented for Persistent Volume Claims (PVCs) used specifically by Red Hat OpenShift AI components (e.g., workbenches, pipeline metadata DB if internal)?
 
 **Issue or Problem**
-A defined backup strategy is needed for data recoverability/compliance for critical artifacts stored in RHOAI-related PVCs. (Aligns with OCP-MGT-05 for general platform backup).
+RHOAI workloads rely on persistent volumes for critical data (models, datasets, workbench configurations). Data loss requires a robust recovery strategy integrated with the overall platform backup approach.
 
 **Assumption**
-RHOAI components utilize PVCs (e.g., Workbenches RHOAI-SM-17/RHOAI-SM-19, Internal Pipeline DB RHOAI-SM-29). Data persistence/recovery is required.
+N/A
 
 **Alternatives**
 
-- OADP Operator using CSI Snapshots/Kopia (Leveraging Platform Strategy)
-- No Dedicated Backup Solution for RHOAI PVCs (Rely on user actions like Git or underlying storage snapshots only)
+- None (Ephemeral/Recreatable Data Only)
+- Integrated OCP Backup (OADP/Velero)
+- Application-Specific Data Export
 
 **Decision**
 #TODO#
 
 **Justification**
 
-- **OADP Operator:** Leverage official OpenShift API for Data Protection (OADP) for application-consistent backup of RHOAI PVCs (using volume snapshots for CSI storage like ODF, or file backups via Kopia). Integrates with platform backup strategy (OCP-MGT-05). Recommended for comprehensive protection.
-- **No Dedicated Backup:** Rely on underlying storage snapshots (application-unaware) or manual user actions (Git push, RHOAI-SM-20). Accepts risk of non-integrated backup/recovery.
+- **None (Ephemeral/Recreatable Data Only):** Only suitable if all persistent data used by RHOAI components (workbenches, pipelines) can be easily recreated or restored from an external source (e.g., Git, S3 bucket).
+- **Integrated OCP Backup (OADP/Velero):** Leverages the OpenShift Data Protection (OADP) Operator to protect RHOAI PVCs (block or filesystem volumes) alongside the cluster configuration. This is the recommended strategy for protecting workbench data and internal databases.
+- **Application-Specific Data Export:** Uses custom scripts or application-level mechanisms (e.g., internal database backup tools, model registry export) to save data to an external location (e.g., object storage).
 
 **Implications**
 
-- **OADP Operator:** Requires OADP configured (as per OCP-MGT-05) with backup storage location (S3). Ensures application-aware backup/restore integrated with K8s resources. Adds management overhead for schedules/restores.
-- **No Dedicated Backup:** Recovery relies on external storage mechanisms or manual intervention. High risk of data loss/complex recovery for data solely on PVCs. Violates enterprise data protection best practices.
+- **None (Ephemeral/Recreatable Data Only):** High Mean Time to Recovery (MTTR) and potential loss of intellectual property if data cannot be restored.
+- **Integrated OCP Backup (OADP/Velero):** Requires configuring OADP and ensuring appropriate backup capacity. The backup must protect the RHOAI Custom Resources (e.g., DataScienceProject, Workbench CRs) in addition to the associated persistent volumes.
+- **Application-Specific Data Export:** Avoids reliance on OCP storage APIs but requires significant custom maintenance and orchestration.
 
 **Agreeing Parties**
 

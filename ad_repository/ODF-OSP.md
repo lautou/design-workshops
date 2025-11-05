@@ -13,21 +13,24 @@ ODF will be deployed on the OpenStack cluster (see OCP-STOR-01).
 
 **Alternatives**
 
-- ODF on Standard Cinder Volumes
-- ODF on High-Performance Cinder Volumes
+- Default Cinder Provisioning
+- Performance-Optimized Cinder Volume Types
+- Dedicated Storage Nodes/Block Devices
 
 **Decision**
 #TODO: Document the decision for the OpenStack cluster.#
 
 **Justification**
 
-- **ODF on Standard Cinder Volumes:** To use the default, general-purpose Cinder volume type. This is suitable for non-production, development, or workloads without high I/O requirements.
-- **ODF on High-Performance Cinder Volumes:** To explicitly use a high-performance Cinder volume type (e.g., one backed by all-flash storage) for the ODF worker nodes. This is the recommended approach for production or I/O-intensive workloads.
+- **Default Cinder Provisioning:** Uses the standard OpenStack Cinder backend and volume types available to the OCP project. Simplifies deployment but risks variable performance based on OpenStack utilization.
+- **Performance-Optimized Cinder Volume Types:** Explicitly defines and uses Cinder volume types backed by high-speed storage (e.g., SSDs or dedicated backends) to ensure ODF meets the necessary performance profile for production workloads.
+- **Dedicated Storage Nodes/Block Devices:** Utilizes dedicated Bare Metal nodes or specially provisioned virtual machines/block devices within OpenStack solely for ODF, bypassing shared resource risks for maximal performance isolation.
 
 **Implications**
 
-- **ODF on Standard Cinder Volumes:** Performance will be entirely dependent on the underlying OpenStack Cinder backend. A slow backend will result in a slow ODF cluster, impacting all data-heavy applications.
-- **ODF on High-Performance Cinder Volumes:** Requires coordination with the OpenStack team to ensure such a volume type is available and has sufficient quota. This will likely incur higher costs on the OpenStack platform but is necessary for performance.
+- **Default Cinder Provisioning:** May be suitable for non-production or lightly utilized ODF clusters. Performance is subject to the OpenStack platform storage configuration.
+- **Performance-Optimized Cinder Volume Types:** Requires coordination with the OpenStack administration team to provision and map specific volume types to the OCP tenant project.
+- **Dedicated Storage Nodes/Block Devices:** Highest initial overhead and infrastructure cost, but guarantees quality of service (QoS) for storage I/O.
 
 **Agreeing Parties**
 

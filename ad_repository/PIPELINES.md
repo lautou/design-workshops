@@ -50,7 +50,7 @@ OpenShift Pipelines will be deployed.
 
 **Alternatives**
 
-- Ephemeral Storage (`emptyDir`)
+- Ephemeral Storage (emptyDir)
 - Persistent Volume Claims (PVCs)
 
 **Decision**
@@ -58,13 +58,13 @@ OpenShift Pipelines will be deployed.
 
 **Justification**
 
-- **Ephemeral Storage (`emptyDir`):** To use temporary, node-local storage for pipeline runs. This is the simplest option and is suitable for pipelines where artifacts do not need to be preserved.
-- **Persistent Volume Claims (PVCs):** To use persistent storage for workspaces. This is necessary when artifacts (e.g., test reports, binaries) need to be saved and accessed after the pipeline run is complete.
+- **Ephemeral Storage (emptyDir):** Uses temporary, node-local storage (RAM or disk space) for the duration of the pipeline run. Ideal for cloning source code or storing temporary intermediate artifacts that must be shared between sequential tasks, but do not require persistence after the pipeline finishes.
+- **Persistent Volume Claims (PVCs):** Uses persistent storage (e.g., ODF, native cloud storage) managed by a StorageClass. Necessary for tasks requiring cache volumes (e.g., dependency cache) or when outputs must be retained after the pipeline completes.
 
 **Implications**
 
-- **Ephemeral Storage (`emptyDir`):** No additional storage configuration is required. However, all data is lost when the pipeline's pod terminates. Performance is dependent on the speed of the node's local disk.
-- **Persistent Volume Claims (PVCs):** Requires an underlying storage provider. This adds a dependency on the storage infrastructure but provides data persistence. High-performance storage (e.g., from ODF) may be required for I/O-heavy build jobs.
+- **Ephemeral Storage (emptyDir):** No explicit storage consumption cost, but transient data is lost if the pod restarts or the pipeline finishes. Requires tasks to fetch dependencies anew each run.
+- **Persistent Volume Claims (PVCs):** Incurs storage consumption costs and management overhead for the PVC lifecycle. Must ensure the underlying storage class supports the required access mode (RWO or RWX, depending on sharing needs).
 
 **Agreeing Parties**
 

@@ -23,19 +23,19 @@ N/A
 
 **Justification**
 
-- **User-Provisioned Infrastructure (UPI):** To manually provision the operating system (RHEL CoreOS) on each physical node. This offers maximum control and is used when automation is not feasible or desired.
-- **Installer-Provisioned Infrastructure (IPI):** To use the fully automated, IPI-based workflow. This requires a dedicated "provisioning" host, a flat "provisioning" network (for PXE), and BMC (e.g., Redfish/IPMI) integration.
-- **Agent-based Installer (ABI):** To use a pre-built agent image (ISO) to boot the nodes. This is ideal for disconnected environments or when PXE is not feasible. It simplifies the provisioning network requirements.
-- **Assisted Installer:** To use a web-based, wizard-like experience that simplifies the installation process and reduces manual configuration errors. It can be used via the Red Hat Hybrid Cloud Console or deployed on-premises.
+- **User-Provisioned Infrastructure (UPI):** Requires the user to manually configure and manage networking, DNS, load balancers, and provisioning of RHCOS onto bare metal hosts prior to installation.
+- **Installer-Provisioned Infrastructure (IPI):** Automates host provisioning and networking by leveraging Bare Metal Operator (BMO) features, suitable if metal resources are fully automated via BMO.
+- **Agent-based Installer (ABI):** Uses discovery ISOs and a lightweight agent to gather hardware information, simplifying installation for both connected and disconnected bare metal environments.
+- **Assisted Installer:** A web-based SaaS service designed to generate installation artifacts and manage the installation process, offering a simplified user experience for bare metal deployments.
 
 **Implications**
 
-- **User-Provisioned Infrastructure (UPI):** Places the full burden of hardware lifecycle management, OS installation, and node recovery on the operations team. The Machine API is not available.
-- **Installer-Provisioned Infrastructure (IPI):** This is the most integrated approach. It enables the Machine API and automated node remediation. It requires detailed information for each node's BMC.
-- **Agent-based Installer (ABI):** Offers a good balance, simplifying provisioning while still enabling cluster-driven installation. Well-suited for GitOps and large-scale deployments.
-- **Assisted Installer:** Greatly simplifies the data-gathering and validation process for on-premises installs. It guides the user through generating a discovery ISO for booting nodes.
+- **User-Provisioned Infrastructure (UPI):** Highest operational overhead and responsibility for day 1/2 operations.
+- **Installer-Provisioned Infrastructure (IPI):** Requires integration with BMO and related provisioning infrastructure. Allows use of Machine API for lifecycle management.
+- **Agent-based Installer (ABI):** Highly flexible for restricted networks and provides integrated tools for configuring nodes (e.g., LVM storage configuration).
+- **Assisted Installer:** Requires a working internet connection during the preparation phase (unless run disconnected). Simplifies deployment by handling Ignition configuration generation.
 
-**Agreeing Parties**
+  **Agreeing Parties**
 
 - Person: #TODO#, Role: Enterprise Architect
 - Person: #TODO#, Role: OCP Platform Owner

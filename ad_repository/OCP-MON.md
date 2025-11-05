@@ -15,22 +15,22 @@ N/A
 
 - Default Platform Monitoring
 - Enable User Workload Monitoring
-- Third-Party Monitoring Solution
+- Customized Monitoring Stack via COO
 
 **Decision**
 #TODO: Document the decision for each cluster.#
 
 **Justification**
 
-- **Default Platform Monitoring:** To use the out-of-the-box monitoring stack, which provides comprehensive metrics for the core OpenShift platform and its components.
-- **Enable User Workload Monitoring:** To extend the built-in monitoring stack to allow development teams to scrape custom metrics from their own applications and services within their projects.
-- **Third-Party Monitoring Solution:** To integrate with an existing, enterprise-standard monitoring tool by deploying a vendor-specific agent to scrape and forward metrics.
+- **Default Platform Monitoring:** Provides built-in, preconfigured monitoring for all core OpenShift components (e.g., etcd, Kubernetes API server, nodes, Operators) using Prometheus, Alertmanager, and Thanos Query. This is enabled by default.
+- **Enable User Workload Monitoring:** Extends the Prometheus stack to collect metrics and expose alerts specifically for workloads running in user-defined projects (namespaces). This is optional.
+- **Customized Monitoring Stack via COO:** Leverages the Cluster Observability Operator (COO) to create and manage highly customizable monitoring stacks, offering a more tailored and detailed view of specific namespaces or components beyond the default configuration.
 
 **Implications**
 
-- **Default Platform Monitoring:** Provides excellent visibility into the platform's health but does not collect metrics from user-deployed applications.
-- **Enable User Workload Monitoring:** Empowers developers with self-service monitoring. This is critical for high-performance workloads, as it allows collection of custom application metrics and specialized hardware metrics (e.g., from GPU exporters).
-- **Third-Party Monitoring Solution:** Leverages existing tools and expertise but adds another agent to be managed on the cluster. It may lead to two separate monitoring systems if the default stack is not disabled.
+- **Default Platform Monitoring:** Configuration is locked down and supported only via the Cluster Monitoring Operator (CMO) ConfigMap. Data storage capacity for Thanos is pre-allocated.
+- **Enable User Workload Monitoring:** Increases resource consumption (CPU/RAM/storage) due to additional Prometheus and Thanos Ruler instances running in the `openshift-user-workload-monitoring` project.
+- **Customized Monitoring Stack via COO:** Provides maximum flexibility for metric collection and routing, but introduces management overhead for the custom stacks and requires advanced knowledge of monitoring configuration.
 
 **Agreeing Parties**
 

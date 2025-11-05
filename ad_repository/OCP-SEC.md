@@ -21,13 +21,13 @@ N/A
 
 **Justification**
 
-- **FIPS Mode Enabled:** To meet stringent security and compliance requirements (e.g., federal or highly regulated industries). This enforces the use of FIPS-validated cryptographic libraries across the entire platform.
-- **FIPS Mode Disabled:** To avoid potential performance overhead or limitations imposed by FIPS-validated libraries, suitable for environments without strict FIPS requirements.
+- **FIPS Mode Enabled:** Required for clusters operating in highly regulated environments (e.g., US government, financial sector). When FIPS mode is enabled, core components use RHEL cryptographic libraries validated for FIPS 140-2/140-3 on **x86_64, ppc64le, and s390x** architectures.
+- **FIPS Mode Disabled:** Standard mode. Provides maximum compatibility and performance, as not all Kubernetes components or workload dependencies may be FIPS validated.
 
 **Implications**
 
-- **FIPS Mode Enabled:** Must be configured during the operating system installation phase and is **irreversible**. Requires validation throughout the cluster lifecycle. Certain components, extensions, or third-party software may not support FIPS mode.
-- **FIPS Mode Disabled:** The cluster may not be suitable for deploying highly regulated workloads requiring FIPS validation.
+- **FIPS Mode Enabled:** Requires that the underlying RHCOS/RHEL operating system is booted in FIPS mode. Cluster features or operators relying on non-FIPS compliant cryptography may not function or may require specific configuration changes.
+- **FIPS Mode Disabled:** May not meet mandated security requirements for certain regulatory environments.
 
 **Agreeing Parties**
 
@@ -46,28 +46,28 @@ How will regulatory compliance (e.g., STIG, PCI-DSS) be enforced, tracked, and r
 Continuous auditing against configuration standards (e.g., DISA-STIG, FedRAMP, PCI-DSS) is necessary to maintain security posture and readiness, complementing the foundational FIPS setting if enabled.
 
 **Assumption**
-Regulatory compliance beyond FIPS needs to be managed. FIPS decision (OCP-SEC-01) is made.
+N/A
 
 **Alternatives**
 
-- Full Compliance Automation (Compliance Operator with Remediation)
-- Auditing Only (Compliance Operator without Remediation)
-- Manual Auditing/Remediation
+- Manual Policy Enforcement (External Audits)
+- Compliance Operator (Automated Scanning/Remediation)
+- Policy Automation via RHACM/ZTP
 
 **Decision**
 #TODO#
 
 **Justification**
 
-- **Full Compliance Automation:** Uses the **Compliance Operator** to automate auditing and remediation against predefined profiles (e.g., PCI-DSS, FedRAMP). Provides proactive enforcement.
-- **Auditing Only:** Uses the Compliance Operator to generate scan reports (`ComplianceCheckResult`) identifying non-compliance, avoiding risks of automatic remediation disabling critical services (like `sshd` with STIG).
-- **Manual Auditing/Remediation:** Relies on manual checks and fixes, suitable only for very small or non-critical environments.
+- **Manual Policy Enforcement (External Audits):** Relies on external tools and manual processes to check cluster configurations against standards. High effort and reactive remediation.
+- **Compliance Operator (Automated Scanning/Remediation):** Recommended automated solution. The Compliance Operator uses OpenSCAP profiles (Platform/Node) to automatically run scans and generate machine configuration remediations for standards like STIG, PCI-DSS (v4), and FedRAMP.
+- **Policy Automation via RHACM/ZTP:** For fleet management, leverages RHACM PolicyGenerator resources to distribute and enforce security and compliance policies across multiple clusters declaratively.
 
 **Implications**
 
-- **Full Compliance Automation:** Applying automated remediations requires high operator privileges and may need manual exceptions (e.g., disabling `sshd`). Ensures continuous compliance posture.
-- **Auditing Only:** Increases manual effort for security teams to apply fixes but provides more control over remediation actions.
-- **Manual Auditing/Remediation:** High operational burden, inconsistent results, not scalable or suitable for regulated environments.
+- **Manual Policy Enforcement (External Audits):** High potential for configuration drift and difficulty in maintaining continuous compliance.
+- **Compliance Operator (Automated Scanning/Remediation):** Requires installing and maintaining the Compliance Operator. Automated remediations (e.g., those affecting SSHD or KubeletConfig) must be carefully reviewed before application.
+- **Policy Automation via RHACM/ZTP:** Enables centralized compliance enforcement across a multi-cluster fleet but introduces dependency on RHACM infrastructure.
 
 **Agreeing Parties**
 
@@ -213,21 +213,24 @@ N/A
 
 **Alternatives**
 
-- **Baseline Enforcement** (Default: `restricted-v2` SCC / PSA `restricted` profile)
-- **Permissive Exceptions** (Assigning `privileged` SCC or less restrictive PSA profile)
+- Restricted Profile (Recommended Baseline)
+- Baseline Profile (Mid-level Access)
+- Permissive Exceptions (Privileged or Custom SCCs)
 
 **Decision**
 #TODO#
 
 **Justification**
 
-- **Baseline Enforcement:** Provides the strongest default security posture by aligning with the PSA `restricted` profile, dropping capabilities, preventing root execution and privilege escalation. Recommended default for user workloads.
-- **Permissive Exceptions:** Only justified for trusted platform components or specific legacy/system applications that demonstrably cannot run restricted. Avoid for general workloads due to high security risks.
+- **Restricted Profile (Recommended Baseline):** Applies the most secure standard (e.g., restricted-v2 SCC / Kubernetes PSA restricted profile) to pods, enforcing constraints like forbidding host networking, volume mounts, and the use of the root user.
+- **Baseline Profile (Mid-level Access):** A more relaxed standard (e.g., PSA baseline profile) that allows default pod operation while preventing known privilege escalations. Suitable for compatibility requirements.
+- **Permissive Exceptions (Privileged or Custom SCCs):** Assigns highly privileged access (e.g., `privileged` SCC or disabling enforcement) necessary for specific infrastructure components, storage operators (e.g., ODF), or legacy applications requiring host access.
 
 **Implications**
 
-- **Baseline Enforcement:** Applications needing higher privileges (host access, root, specific capabilities) require manual Pod Security Context adjustments or assignment of custom SCCs / less restrictive PSA namespace labels.
-- **Permissive Exceptions:** Significantly increases risk if a container is compromised (gains high host access). Requires strict auditing, control, and justification.
+- **Restricted Profile (Recommended Baseline):** May require modification or adaptation of application images and manifests that assume high privileges (e.g., running as root, using host paths).
+- **Baseline Profile (Mid-level Access):** Provides greater compatibility than Restricted but introduces minor security flexibility tradeoffs.
+- **Permissive Exceptions (Privileged or Custom SCCs):** Compromises the Principle of Least Privilege and significantly increases the attack surface of the workload and the host node.
 
 **Agreeing Parties**
 
@@ -291,23 +294,23 @@ Supply chain security is a requirement.
 **Alternatives**
 
 - No Verification
-- OpenShift Policy Enforcement (`ImagePolicy`, `ClusterImagePolicy` with Sigstore)
-- External Admission Policy (via Webhooks, OCP-SEC-07)
+- OpenShift Policy Enforcement (ImagePolicy/Sigstore)
+- External Verification Tools (Admission Webhooks)
 
 **Decision**
 #TODO#
 
 **Justification**
 
-- **No Verification:** Simplest operationally, but highest risk of running compromised software.
-- **OpenShift Policy Enforcement:** Recommended. Uses built-in CRs (`ClusterImagePolicy`, `ImagePolicy`) for Sigstore verification. Defines root of trust (public key, PKI cert, Fulcio/Rekor). CVO automatically verifies release images.
-- **External Admission Policy:** Uses third-party policy engines (Gatekeeper, Kyverno) via webhooks to enforce image verification.
+- **No Verification:** Simplest approach, relying solely on access control (RBAC) to the registry, not validating image content origin or integrity.
+- **OpenShift Policy Enforcement (ImagePolicy/Sigstore):** Recommended solution. Uses `ImagePolicy` or `ClusterImagePolicy` resources to define policies that enforce signature verification (e.g., Sigstore) for specific image registries/scopes before the image can be pulled and run.
+- **External Verification Tools (Admission Webhooks):** Leverages a third-party policy engine (e.g., Gatekeeper, Kyverno) integrated via admission webhooks to validate image metadata or signatures against external sources.
 
 **Implications**
 
-- **No Verification:** High vulnerability to supply chain attacks.
-- **OpenShift Policy Enforcement:** Requires managing keys/certificates for trust root. Failure to mirror signatures in disconnected environments can block updates if enforced for release images.
-- **External Admission Policy:** Adds external components and management overhead.
+- **No Verification:** Leaves the cluster vulnerable to supply chain attacks or unauthorized image modifications.
+- **OpenShift Policy Enforcement (ImagePolicy/Sigstore):** Requires configuring trusted signing authorities and ensures that unauthorized or untrusted images are blocked at the cluster API level. MCO automatically verifies release image signatures.
+- **External Verification Tools (Admission Webhooks):** Requires deployment and maintenance of additional policy enforcement infrastructure, which must integrate reliably with the OpenShift image registry workflow.
 
 **Agreeing Parties**
 

@@ -23,17 +23,17 @@ N/A
 
 **Justification**
 
-- **Shared Project per Environment:** Minimizes project count for operational simplicity. Suitable for small teams where applications can coexist.
-- **Project per Team per Environment:** Provides teams autonomy and clear boundaries for resource/security management. Common balanced approach.
-- **Project per Application per Environment:** Highest application isolation, often used when one team manages many distinct apps.
-- **Project per Team per Application per Environment:** Most granular organization, unique project per app per team.
+- **Shared Project per Environment:** Minimizes overhead (fewest total projects). Requires strict enforcement of ResourceQuota and NetworkPolicy to isolate workloads within the shared project boundary.
+- **Project per Team per Environment:** Balances overhead and isolation. Projects naturally delineate resource boundaries (quotas) and RBAC delegation based on team ownership (tenant).
+- **Project per Application per Environment:** Provides the highest logical isolation, allowing granular resource allocation and specific security controls (e.g., SCC/PSA policies) for each application instance.
+- **Project per Team per Application per Environment:** Granular control combining team ownership and per-application isolation.
 
 **Implications**
 
-- **Shared Project:** Increases risk of "noisy neighbors" / config conflicts. Complex RBAC/quota management within the project.
-- **Project per Team:** Good balance between isolation/overhead. Teams manage resources/permissions within their projects.
-- **Project per Application:** Large number of projects, increases management complexity but offers strong app-level isolation.
-- **Project per Team per Application:** Highest project count, requires robust automation for creation/configuration.
+- **Shared Project per Environment:** High risk of resource contention and "noisy neighbor" problems if quotas are not managed precisely.
+- **Project per Team per Environment:** Limits the blast radius of a single misconfigured application to the owning team's project, preventing cluster-wide impact.
+- **Project per Application per Environment:** Management overhead scales linearly with the number of deployed applications.
+- **Project per Team per Application per Environment:** Highest complexity and management overhead.
 
 **Agreeing Parties**
 
@@ -189,15 +189,15 @@ Disaster recovery and data protection are required.
 
 **Justification**
 
-- **etcd Only:** Essential for DR of cluster config but **does not protect application PV data**. Fast control plane recovery.
-- **Storage Only:** Protects PV data using storage features but is **application-unaware** (doesn't back up associated K8s resources like PVCs, Deployments). Restore is manual (restore PV, reapply manifests).
-- **OADP:** Most comprehensive, **application-centric** protection. Backs up K8s objects (Deployments, PVCs, etc.) and integrates with storage (CSI snapshots) to back up associated PV data together. Supports backup to S3-compatible storage.
+- **Etcd Snapshot Only:** Backs up the critical control plane state (Kubernetes resources, cluster configuration) via etcd snapshots, which is sufficient for cluster recovery if underlying application data (PVs) is handled separately or is ephemeral.
+- **OpenShift Data Protection (OADP/Velero) for PVs and Resources:** Uses the OADP Operator (based on Velero) to back up cluster resources and application persistent data volumes (PVs/PVCs). OADP supports incremental backups of block and Filesystem volumes.
+- **Comprehensive Layered Backup:** Combines Etcd snapshots for cluster state with OADP for application data and additional measures for immutable objects (e.g., MachineConfigs, custom resources).
 
 **Implications**
 
-- **etcd Only:** Restoring is destructive (full cluster DR only). Doesn't help with app data corruption. Insufficient on its own for stateful apps.
-- **Storage Only:** Manual, complex restore process. Risk of inconsistency between restored PV data and K8s object state.
-- **OADP:** Requires OADP operator installation and backup storage (S3). Adds a component to manage but significantly simplifies/automates application-aware recovery. Recommended approach.
+- **Etcd Snapshot Only:** Does not protect application data (PVs), leading to data loss unless application storage is managed by an external highly available/DR solution.
+- **OpenShift Data Protection (OADP/Velero) for PVs and Resources:** Requires deploying the OADP Operator and defining backup storage locations (e.g., S3, ODF Object Storage). Requires enabling OpenShift User Workload Monitoring to observe OADP metrics.
+- **Comprehensive Layered Backup:** Highest complexity and resource usage. Requires meticulous planning to ensure consistency between etcd snapshots and volume backups during restore operations.
 
 **Agreeing Parties**
 
